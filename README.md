@@ -8,7 +8,7 @@ install and no accounts.
 
 ## Now playing
 
-- **Cleo — Celestial Survivor** (`/bonk/`) — survivor roguelite. A winged
+- **Cleo — Celestial Survivor** (`/bonk/`) — Cleo. A winged
   kitten against the void: 770 abilities and relics, 340 foes, 16 legendary
   uniques and Nuke / Insta-Kill power-ups.
 
