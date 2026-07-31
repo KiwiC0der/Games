@@ -1,0 +1,614 @@
+/* ==========================================================================
+   The Game Library — games.anteneh.tech
+   Neo-brutalist shelf: white paper, hard black rules, offset shadows.
+   Cards stack over one another as you scroll (sticky-layer deck).
+   ========================================================================== */
+
+/* --------------------------------------------------------------- fonts -- */
+@font-face {
+  font-family: 'Fredoka';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('../../fonts/Fredoka-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('../../fonts/Fredoka-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('../../fonts/Fredoka-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('../../fonts/SpaceMono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Space Mono';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('../../fonts/SpaceMono-700.woff2') format('woff2');
+}
+
+/* -------------------------------------------------------------- tokens -- */
+:root {
+  --ink: #000000;
+  --paper: #ffffff;
+  --grid-line: rgba(0, 0, 0, 0.045);
+  --grid-size: 108px;
+
+  --muted: rgba(0, 0, 0, 0.52);
+  --rule: rgba(0, 0, 0, 0.22);
+
+  --hero-badge: #88aaee;
+
+  /* Card geometry. Width is clamped by height too, so the card never
+     outgrows a short viewport and break the one-card-per-screen rhythm. */
+  --card-w: min(920px, 92vw, 150vh);
+  --card-ratio: 23 / 11;
+  --border: 3px;
+  --shadow-hard: 10px 10px 0 var(--ink);
+
+  --display: 'Fredoka', ui-rounded, 'Trebuchet MS', system-ui, sans-serif;
+  --mono: 'Space Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.46, 0.64, 1);
+}
+
+/* --------------------------------------------------------------- reset -- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  /* `clip`, not `hidden`: `hidden` would make the root a scroll container,
+     which silently re-anchors every `position: sticky` scene to it and kills
+     the whole stacking effect. */
+  overflow-x: clip;
+}
+
+body {
+  margin: 0;
+  background-color: var(--paper);
+  /* Faint engineering grid, drawn with gradients so there is no image cost. */
+  background-image:
+    repeating-linear-gradient(to right, var(--grid-line) 0 1px, transparent 1px var(--grid-size)),
+    repeating-linear-gradient(to bottom, var(--grid-line) 0 1px, transparent 1px var(--grid-size));
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: clip;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* Visible focus everywhere — the design is high-contrast, so match it. */
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 12px 18px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 12px;
+  top: 12px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------------------------------------------------------- hero -- */
+.hero {
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  padding: clamp(56px, 10vh, 96px) clamp(20px, 19vw, 274px);
+}
+
+.hero__inner {
+  max-width: 780px;
+}
+
+.badge {
+  margin: 0;
+  display: inline-block;
+  background: var(--hero-badge);
+  border: var(--border) solid var(--ink);
+  box-shadow: 5px 5px 0 var(--ink);
+  padding: 9px 16px 7px;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(10px, 1.05vw, 13px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.hero__title {
+  margin: 36px 0 0;
+  font-family: var(--display);
+  font-weight: 700;
+  /* Oversized display type, per reference. Sized so all three lines plus the
+     lede and chips clear a 900px-tall viewport. Scales fluidly from 320px. */
+  font-size: clamp(2.6rem, 8.6vw, 7rem);
+  line-height: 0.84;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+}
+
+.hero__title span {
+  display: block;
+}
+
+.hero__lede {
+  margin: 40px 0 0;
+  max-width: 34em;
+  font-size: clamp(14px, 1.25vw, 17px);
+  line-height: 1.7;
+}
+
+.hero__meta {
+  margin: 34px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.chip {
+  margin: 0;
+  display: inline-block;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  padding: 8px 14px 6px;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(10px, 1vw, 13px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hero__hint {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------- card stack -- */
+/* Every scene is sticky at the top of the viewport. Because they share a
+   parent, each new scene paints over the one before it — that layering IS
+   the stacking effect. JS only nudges the outgoing card back a little so a
+   sliver peeks out and it reads as a deck rather than a hard cut. */
+.stack {
+  position: relative;
+  /* Extra tail keeps the final card pinned and centred for a beat instead of
+     being shoved off-screen the instant the footer arrives. */
+  padding-bottom: 12vh;
+}
+
+.scene {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.card {
+  position: relative;
+  width: var(--card-w);
+  aspect-ratio: var(--card-ratio);
+  display: grid;
+  grid-template-columns: 37% 1fr;
+  border: var(--border) solid var(--ink);
+  box-shadow: var(--shadow-hard);
+  background: var(--paper);
+  overflow: hidden;
+  transform-origin: 50% 100%;
+  will-change: transform, opacity;
+}
+
+.card__art {
+  position: relative;
+  background: #04050a;
+  border-right: var(--border) solid var(--ink);
+  overflow: hidden;
+}
+
+.card__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Covers are 2:3 portrait with the title lockup baked into the lower
+     third — anchor to the bottom so that lockup is never cropped away. */
+  object-position: 50% 100%;
+}
+
+.card__body {
+  background: var(--accent, #a6f0c6);
+  padding: clamp(20px, 3.4vw, 44px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(8px, 1.1vw, 14px);
+  min-width: 0;
+}
+
+.card__title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.9rem, 4.2vw, 3.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+}
+
+.card__tagline {
+  margin: 0;
+  font-size: clamp(12px, 1.25vw, 17px);
+  line-height: 1.5;
+}
+
+.card__rule {
+  height: 2px;
+  background: var(--rule);
+  margin: clamp(4px, 0.8vw, 10px) 0;
+}
+
+/* The chip and the CTA hug their content; everything else spans the panel. */
+.card__body .chip,
+.card__actions {
+  align-self: flex-start;
+}
+
+.card__meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(16px, 3vw, 40px);
+}
+
+.card__meta dt {
+  font-size: clamp(8px, 0.78vw, 10px);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.card__meta dd {
+  margin: 2px 0 0;
+  font-size: clamp(11px, 1.05vw, 14px);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.card__actions {
+  margin-top: clamp(6px, 1.2vw, 14px);
+}
+
+/* ------------------------------------------------------ magnetize CTA -- */
+/* Vanilla port of the Magnetize Button: particles rest scattered around the
+   control and spring to its centre on hover / focus / touch. */
+.magnetize {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 168px;
+  padding: 15px 30px 13px;
+  background: var(--paper);
+  border: var(--border) solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: clamp(12px, 1.15vw, 15px);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out);
+}
+
+.magnetize__label {
+  position: relative;
+  z-index: 1;
+}
+
+.magnetize__particle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.38;
+  pointer-events: none;
+  transition:
+    transform 0.62s var(--ease-spring),
+    opacity 0.35s var(--ease-out);
+}
+
+.magnetize.is-attracting .magnetize__particle {
+  transform: translate3d(0, 0, 0) !important;
+  opacity: 1;
+}
+
+.magnetize:hover:not([aria-disabled='true']),
+.magnetize:focus-visible:not([aria-disabled='true']) {
+  transform: translate(3px, 3px);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.magnetize:active:not([aria-disabled='true']) {
+  transform: translate(6px, 6px);
+  box-shadow: 0 0 0 var(--ink);
+}
+
+.magnetize[aria-disabled='true'] {
+  background: transparent;
+  border-style: dashed;
+  border-color: rgba(0, 0, 0, 0.45);
+  box-shadow: none;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* -------------------------------------------------------------- dotnav -- */
+.dotnav {
+  position: fixed;
+  top: 50%;
+  right: clamp(10px, 1.4vw, 20px);
+  transform: translateY(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dotnav ul {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dotnav button {
+  display: block;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  cursor: pointer;
+  transition:
+    background-color 0.25s var(--ease-out),
+    transform 0.25s var(--ease-out);
+}
+
+.dotnav button:hover {
+  transform: scale(1.25);
+}
+
+.dotnav button[aria-current='true'] {
+  background: var(--hero-badge);
+}
+
+/* -------------------------------------------------------------- footer -- */
+.site-footer {
+  position: relative;
+  z-index: 2;
+  background: var(--paper);
+  border-top: var(--border) solid var(--ink);
+  padding: 40px clamp(20px, 19vw, 274px);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.site-footer a {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* --------------------------------------------------------- responsive -- */
+@media (max-width: 860px) {
+  :root {
+    --shadow-hard: 7px 7px 0 var(--ink);
+  }
+
+  .scene {
+    padding: 14px;
+  }
+
+  .card__body {
+    padding: 22px;
+    gap: 10px;
+  }
+
+  .card__title {
+    font-size: clamp(1.8rem, 8vw, 2.6rem);
+  }
+
+  .card__tagline {
+    font-size: 13px;
+  }
+
+  .card__meta {
+    gap: 20px;
+  }
+
+  .card__meta dd {
+    font-size: 12px;
+  }
+
+  .card__actions {
+    align-self: stretch;
+  }
+
+  .magnetize {
+    width: 100%;
+    min-width: 0;
+    padding: 14px 20px 12px;
+    font-size: 13px;
+  }
+
+  .dotnav {
+    gap: 6px;
+    right: 8px;
+  }
+
+  .dotnav button {
+    width: 10px;
+    height: 10px;
+    border-width: 2px;
+  }
+
+  .hero {
+    padding: 80px 20px;
+  }
+
+  .hero__title {
+    font-size: clamp(2.75rem, 15vw, 5rem);
+  }
+}
+
+/* Portrait card — art on top, details below.
+   Gated on height as well as width: a landscape phone is short and wide, and
+   the default two-column card is the layout that actually fits there.
+   Height is content-driven (`auto`), with the art panel taking a fixed slice
+   of the viewport, so a long tagline can never clip the Play button. */
+@media (max-width: 860px) and (min-height: 620px) {
+  .card {
+    /* 86vw, not 92 — the dot rail gets its own gutter. */
+    width: min(460px, 86vw);
+    aspect-ratio: auto;
+    height: auto;
+    max-height: 88vh;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .card__art {
+    height: clamp(200px, 38vh, 340px);
+    border-right: 0;
+    border-bottom: var(--border) solid var(--ink);
+  }
+
+  /* Shorter art panel, so ease off the hard bottom anchor — this keeps the
+     character in frame as well as the title lockup baked into the cover. */
+  .card__art img {
+    object-position: 50% 86%;
+  }
+}
+
+@media (max-width: 400px) {
+  .hero__meta {
+    gap: 10px;
+  }
+
+  .chip {
+    padding: 7px 10px 5px;
+    letter-spacing: 0.1em;
+  }
+}
+
+/* ----------------------------------------------------- reduced motion -- */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  /* Particles stay put and stay legible rather than flying about. */
+  .magnetize__particle {
+    display: none;
+  }
+
+  /* JS also skips the deck transform when this is set; this is the guard
+     in case styles load without scripts. */
+  .card {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+}
+
+/* Without JS the deck still works — sections simply layer with no easing. */
+@media (prefers-contrast: more) {
+  :root {
+    --grid-line: rgba(0, 0, 0, 0.09);
+    --muted: rgba(0, 0, 0, 0.75);
+    --rule: rgba(0, 0, 0, 0.5);
+  }
+}
