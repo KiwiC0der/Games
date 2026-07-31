@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found — The Game Library</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#ffffff">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/css/site.css">
+<style>
+  /* The 404 borrows the shelf's tokens but needs none of the deck machinery. */
+  .notfound {
+    min-height: 100vh;
+    min-height: 100svh;
+    display: flex;
+    align-items: center;
+    padding: clamp(56px, 10vh, 96px) clamp(20px, 19vw, 274px);
+  }
+  .notfound__code {
+    margin: 36px 0 0;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(3.5rem, 14vw, 9rem);
+    line-height: 0.84;
+    letter-spacing: -0.035em;
+  }
+  .notfound__lede {
+    margin: 28px 0 0;
+    max-width: 34em;
+    font-size: clamp(14px, 1.25vw, 17px);
+    line-height: 1.7;
+  }
+  .notfound__actions {
+    margin-top: 34px;
+  }
+</style>
+</head>
+<body>
+<main class="notfound">
+  <div>
+    <p class="badge">Games by Anteneh Demissie</p>
+    <h1 class="notfound__code">404</h1>
+    <p class="notfound__lede">That shelf is empty. The page you asked for is not
+      here — it may have been renamed, or it may never have existed.</p>
+    <div class="notfound__actions">
+      <a class="magnetize" href="/"><span class="magnetize__label">Back to the library</span></a>
+    </div>
+  </div>
+</main>
+<script src="/assets/js/site.js" defer></script>
+</body>
+</html>
