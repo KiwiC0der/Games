@@ -118,6 +118,7 @@ namespace PilotHeim.Titan
             if (AssetLibrary.Titan == null || AssetLibrary.TitanClips == null) return null;
             try
             {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var holder = new GameObject("PilotHeim_TitanVisual").transform;
                 holder.SetParent(root, false);
                 var v = holder.gameObject.AddComponent<TitanVisual>();
@@ -150,7 +151,7 @@ namespace PilotHeim.Titan
                 if (v.Muzzle == null) v.Muzzle = Bone("ja_r_propHand") ?? holder;
                 foreach (var r in holder.GetComponentsInChildren<Renderer>()) { r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On; r.receiveShadows = true; }
                 v.RealModel = true;
-                Plugin.Log.LogInfo($"BT-7274 model built: {bones.Length} bones, {TfMaterials.TexturesLoaded} textures ({TfMaterials.Missing} missing)");
+                Plugin.Log.LogInfo($"BT-7274 model built in {sw.ElapsedMilliseconds} ms: {bones.Length} bones, {TfMaterials.TexturesLoaded} textures ({TfMaterials.Missing} missing)");
                 return v;
             }
             catch (System.Exception e)
@@ -163,6 +164,8 @@ namespace PilotHeim.Titan
         /// <summary>Picks BT's clip from the motor (Titanfall-style: idle, walk/run in 4 directions, sprint, dash).</summary>
         private void AnimateReal(TitanMotor motor)
         {
+            UpdateAction();
+            if (action != null || Kneeling) return;
             Vector3 v = new Vector3(motor.Vel.x, 0f, motor.Vel.z);
             float speed = v.magnitude;                                           // u/s
             Vector3 local = transform.InverseTransformDirection(v);
@@ -188,6 +191,34 @@ namespace PilotHeim.Titan
 
         private float dashHold;
         private string dashDir = "f";
+        private string action;
+
+        /// <summary>BT kneels after the hot drop until the pilot embarks or he has to move.</summary>
+        public bool Kneeling { get; private set; }
+        public bool KneltAfterDrop { get; private set; }
+        /// <summary>A one-shot sequence (hot drop, embark, disembark, stand up, death) is playing; movement waits for it.</summary>
+        public bool Locked => RealModel && (Kneeling || (action != null && !Anim.Finished));
+        public string Action => action;
+
+        /// <summary>Plays one of BT's sequences once; returns its length (0 if unavailable).</summary>
+        public float PlayAction(string key, float startTime = 0f, float fade = 0.15f)
+        {
+            if (!RealModel || !Anim.Has(key)) return 0f;
+            action = key; Kneeling = false;
+            Anim.Rate = 1f;
+            Anim.Play(key, fade, true, startTime);
+            return Anim.Clips[key].Length - startTime;
+        }
+
+        public void StandUp() { if (Kneeling) PlayAction("quickstand", 0f, 0.25f); }
+
+        private void UpdateAction()
+        {
+            if (action == null || !Anim.Finished) return;
+            // the hot drop and the stand-up chain into the next state
+            if (action == "hotdrop") { action = null; Kneeling = true; KneltAfterDrop = true; Anim.Play("kneel_idle", 0.3f); Plugin.Log.LogInfo("BT kneels, waiting for the pilot"); return; }
+            action = null;
+        }
 
         public void Animate(TitanMotor motor, float dt)
         {

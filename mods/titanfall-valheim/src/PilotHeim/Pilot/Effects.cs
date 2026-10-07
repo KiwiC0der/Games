@@ -83,7 +83,7 @@ namespace PilotHeim.Pilot
         public static void Explosion(Vector3 pos, float radius)
         {
             Spawn("explosion", pos, Quaternion.identity);
-            Spawn("sfx_explosion", pos, Quaternion.identity);
+            if (!PilotHeim.Assets.TfAudio.Play("explosion", pos, 1f, 120f)) Spawn("sfx_explosion", pos, Quaternion.identity);
             var go = new GameObject("PilotHeim_Blast");
             go.transform.position = pos;
             var l = go.AddComponent<Light>();
@@ -105,10 +105,15 @@ namespace PilotHeim.Pilot
             Object.Destroy(lr.gameObject, 0.4f);
         }
 
-        public static void Sound(string slot, Vector3 pos)
+        /// <summary>Titanfall sound for a gameplay slot ("fire:mp_weapon_rspn101" falls back to "fire").</summary>
+        public static void Sound(string slot, Vector3 pos, float volume = 1f)
         {
-            if (AudioBank.TryPlay(slot, pos)) return;
-            if (slot == "fire") Spawn("sfx_fire", pos, Quaternion.identity);
+            if (PilotHeim.Assets.TfAudio.Play(slot, pos, volume)) return;
+            int c = slot.IndexOf(':');
+            string generic = c > 0 ? slot.Substring(0, c) : slot;
+            if (generic == "move") return;                                   // movement is silent without Titanfall sounds
+            if (c > 0 && PilotHeim.Assets.TfAudio.Play(generic, pos, volume)) return;
+            if (generic == "fire") Spawn("sfx_fire", pos, Quaternion.identity);
         }
     }
 

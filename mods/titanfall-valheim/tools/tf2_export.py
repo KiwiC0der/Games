@@ -37,8 +37,14 @@ BT_CLIPS = {
     "dash_l": "@bt_dash_left", "dash_r": "@bt_dash_right",
     "fire": "@bt_fire_stand", "reload": "@bt_stand_reload_01",
     "stumble": "@bt_combat_walk_stumble_01",
+    # titanfall, embark and death (titan_buddy_embark.mdl / titan_buddy_mp_core.mdl)
+    "hotdrop": "@at_hotdrop_drop_2knee_turbo", "kneel_idle": "@at_MP_embark_idle", "quickstand": "@at_hotdrop_quickstand",
+    "embark_kneel": "@at_MP_embark",
+    "embark_f": "@at_mount_kneel_front", "embark_b": "@at_mount_kneel_behind",
+    "embark_l": "@at_mount_kneel_left", "embark_r": "@at_mount_kneel_right",
+    "disembark": "@at_MP_disembark_back2idle", "death": "a_Death_fallforward",
 }
-LOOPING = {"idle", "walk_f", "walk_b", "walk_l", "walk_r", "run_f", "run_b", "run_l", "run_r", "sprint_f"}
+LOOPING = {"kneel_idle", "idle", "walk_f", "walk_b", "walk_l", "walk_r", "run_f", "run_b", "run_l", "run_r", "sprint_f"}
 MAX_IDLE_FRAMES = 300     # combat idle is 1001 frames; 10 s is plenty and keeps the file small
 
 
@@ -122,8 +128,9 @@ def write_mesh(m, submeshes, path, rest_pose=None):
 
 
 def write_anims(m, clips, path, fallback=None):
-    """PHA1: bone count, then clips (name, fps, loop, speed u/s, frames x bones x (pos3, rot4))."""
-    o = Out(b"PHA1")
+    """PHA2: bone count, then clips (name, fps, loop, speed u/s, mark s, frames x bones x (pos3, rot4)).
+    mark = impact time of the hot drop (fastest hip drop), else 0."""
+    o = Out(b"PHA2")
     o.i(len(m["bones"]))
     o.i(len(clips))
     for key, a in clips:
@@ -135,12 +142,19 @@ def write_anims(m, clips, path, fallback=None):
         if tracker >= 0 and n > 2:
             p0, p1 = np.array(poses[0][tracker][0]), np.array(poses[n - 2][tracker][0])
             speed = float(np.linalg.norm(p1 - p0) / ((n - 2) / a.fps))
-        o.s(key); o.f(a.fps); o.i(1 if key in LOOPING else 0); o.f(speed); o.i(n)
+        mark = 0.0
+        if key == "hotdrop":
+            # impact = the frame the hips slam down fastest (BT hits the ground and drops to one knee)
+            hip = next(i for i, b in enumerate(m["bones"]) if b["name"] == "def_c_hip")
+            ys = [poses[f][hip][0][1] for f in range(n)]
+            drop = [ys[f] - ys[f + 1] for f in range(n - 1)]
+            mark = max(range(n - 1), key=lambda f: drop[f]) / a.fps
+        o.s(key); o.f(a.fps); o.i(1 if key in LOOPING else 0); o.f(speed); o.f(mark); o.i(n)
         for pose in poses:
             for (p, q, sc) in pose:
                 up, uq = to_unity_tr(p, q)
                 o.f(*up, *uq)
-        print(f"  clip {key:9s} <- {a.name:36s} frames {n:4d} fps {a.fps:.0f} speed {speed:6.1f} u/s")
+        print(f"  clip {key:12s} <- {a.name:36s} frames {n:4d} fps {a.fps:.0f} speed {speed:6.1f} u/s" + (f" impact {mark:.2f} s" if mark else ""))
     o.save(path)
 
 

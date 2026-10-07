@@ -39,11 +39,31 @@ namespace PilotHeim.Assets
             return template;
         }
 
+        /// <summary>Raw PHTEX bytes read ahead by the asset worker thread (path -> bytes).</summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> Preloaded =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, byte[]>();
+
+        /// <summary>GPU-ready DXT mip chain from tools/tf2_textures.py: no decode, just an upload.</summary>
+        private static Texture2D FromPhtex(string file, string name, bool linear)
+        {
+            if (!Preloaded.TryRemove(file, out var b)) { if (!File.Exists(file)) return null; b = File.ReadAllBytes(file); }
+            if (b.Length < 20 || b[0] != 'P' || b[1] != 'H' || b[2] != 'T' || b[3] != '1') return null;
+            var fmt = (TextureFormat)System.BitConverter.ToInt32(b, 4);
+            int w = System.BitConverter.ToInt32(b, 8), h = System.BitConverter.ToInt32(b, 12), mips = System.BitConverter.ToInt32(b, 16);
+            var t = new Texture2D(w, h, fmt, mips, linear) { name = name, wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };
+            var data = new byte[b.Length - 20];
+            System.Buffer.BlockCopy(b, 20, data, 0, data.Length);
+            t.LoadRawTextureData(data);
+            t.Apply(false, true);
+            return t;
+        }
+
         private static Texture2D Tex(string mat, string suffix, bool linear)
         {
             string file = Path.Combine(Root ?? "", mat, mat + "_" + suffix + ".png");
             if (texCache.TryGetValue(file, out var t)) return t;
-            t = null;
+            t = FromPhtex(Path.ChangeExtension(file, ".phtex"), mat + "_" + suffix, linear);
+            if (t != null) { TexturesLoaded++; texCache[file] = t; return t; }
             if (File.Exists(file))
             {
                 t = new Texture2D(2, 2, TextureFormat.RGBA32, true, linear) { name = mat + "_" + suffix, wrapMode = TextureWrapMode.Repeat, anisoLevel = 4 };

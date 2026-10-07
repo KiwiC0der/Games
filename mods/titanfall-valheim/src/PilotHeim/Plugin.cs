@@ -36,6 +36,7 @@ namespace PilotHeim
         public static ConfigEntry<KeyCode> KeyToggleMod;
         public static ConfigEntry<bool> SelfTest;
         public static ConfigEntry<bool> PilotBodyEnabled;
+        public static ConfigEntry<float> SoundVolume;
         public static ConfigEntry<string> Loadout;
         public static ConfigEntry<PilotHeim.Pilot.PilotArsenal.TacticalKind> TacticalAbility;
         public static ConfigEntry<bool> CampaignWeaponProfile;
@@ -79,6 +80,7 @@ namespace PilotHeim
             TitanClass = Config.Bind("Titan", "Class", "titan_buddy", "Titan 2 player settings class for your Titan (titan_buddy = BT-7274).");
             TitanBuildTimeScale = Config.Bind("Titan", "BuildTimeScale", 1f, "Multiplier on titan_build_time (1 = Titanfall's 180 s).");
             TitanCoreChargeSeconds = Config.Bind("Titan", "CoreChargeSeconds", 90f, "Seconds for the Titan core meter to fill.");
+            SoundVolume = Config.Bind("Visuals", "TitanfallSoundVolume", 0.8f, "Volume of the Titanfall sounds (on top of Valheim's SFX volume).");
             PilotBodyEnabled = Config.Bind("Visuals", "TitanfallPilotBody", true, "Show the Titanfall pilot (exported from your install) instead of the Valheim body; Valheim animations still drive it.");
             SelfTest = Config.Bind("Debug", "SelfTest", false, "Load a test world, run scripted movement checks and quit, writing results next to the log.");
 
@@ -95,6 +97,7 @@ namespace PilotHeim
                 var titanTuning = new TitanTuning(titanSet, native, damageDefs, TitanClass.Value);
                 PilotHeim.Titan.TitanController.Tuning = titanTuning;
                 PilotHeim.Assets.AssetLibrary.Preload(DataDir.Value);          // models/clips parse on a worker thread
+                PilotHeim.Assets.TfAudio.Preload(Path.Combine(DataDir.Value, "assets"));
                 tuning.Report.AddRange(titanTuning.Report);
                 File.WriteAllLines(Path.Combine(Paths.BepInExRootPath, "PilotHeim_tuning.txt"), tuning.Report);
                 Log.LogInfo($"Pilot tuning resolved: {tuning.Report.Count} values (see BepInEx/PilotHeim_tuning.txt)");

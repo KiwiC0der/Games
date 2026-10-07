@@ -150,7 +150,7 @@ namespace PilotHeim.Pilot
             p.m_lookPitch = Mathf.Clamp(p.m_lookPitch + (w.KickPitchBase + Random.Range(-w.KickPitchRandom, w.KickPitchRandom) * 0.5f) * kickScale, -89f, 89f);
             p.m_lookYaw *= Quaternion.Euler(0f, (w.KickYawBase + Random.Range(-w.KickYawRandom, w.KickYawRandom)) * kickScale * 0.5f, 0f);
             Effects.Muzzle(muzzle, aim);
-            Effects.Sound("fire", muzzle);
+            Effects.Sound("fire:" + w.Id, muzzle);
             if (Override == null && clips[Current] <= 0) StartReload(true);
         }
 

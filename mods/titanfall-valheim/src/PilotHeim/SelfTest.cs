@@ -129,6 +129,8 @@ namespace PilotHeim
             input.Sprint = true;
             float sprint = 0f;
             yield return Measure(2.0f, 0.6f, () => m.HorizontalSpeed, v => sprint = v);
+            if (Mathf.Abs(sprint - t.SprintSpeed) > t.SprintSpeed * 0.03f)
+                Line($"   sprint diag: ground {m.OnGround} wallrun {m.Wallrunning} slide {m.Sliding} arsenal x{pc.Arsenal?.SpeedScale ?? 1f:0.00} valheim x{player.GetRunSpeedFactor():0.00} encumbered {player.IsEncumbered()} pos {player.transform.position - origin}");
             Check("sprint speed (u/s)", sprint, t.SprintSpeed, 0.03f);
             float stam = player.GetStamina();
             yield return new WaitForSeconds(1f);
@@ -244,7 +246,7 @@ namespace PilotHeim
             player.SetGodMode(true);
 
             // --- T10.. pilot weapons against a real Valheim creature
-            yield return Guard(WeaponTests(player, m, pc.Arsenal, input, spawnPos), "weapons");
+            yield return Guard(WeaponTests(player, m, pc.Arsenal, input, origin + new Vector3(-25f, 0f, -30f), flat: true), "weapons");
 
             // --- T19 Titanfall pilot body
             yield return Guard(BodyTests(player, m, pc, input, origin + new Vector3(-20f, 0f, -20f)), "body");
@@ -298,12 +300,13 @@ namespace PilotHeim
             return c;
         }
 
-        private IEnumerator WeaponTests(Player player, PilotMotor m, PilotArsenal a, PilotMotor.InputState input, Vector3 ground)
+        private IEnumerator WeaponTests(Player player, PilotMotor m, PilotArsenal a, PilotMotor.InputState input, Vector3 ground, bool flat = false)
         {
             if (a == null) { Fail("weapons", "arsenal not created"); yield break; }
             // fight on real terrain, a fresh troll per weapon
-            Vector3 stand = ground; stand.y = ZoneSystem.instance.GetGroundHeight(stand);
-            Vector3 spot = stand + Vector3.forward * 15f; spot.y = ZoneSystem.instance.GetGroundHeight(spot);
+            // flat: the sky arena floor (a clear line of fire on any world seed); else real terrain
+            Vector3 stand = ground; if (!flat) stand.y = ZoneSystem.instance.GetGroundHeight(stand);
+            Vector3 spot = stand + Vector3.forward * 15f; if (!flat) spot.y = ZoneSystem.instance.GetGroundHeight(spot);
             var prefab = ZNetScene.instance.GetPrefab("Troll");
             if (prefab == null) { Fail("weapons", "Troll prefab missing"); yield break; }
             GameObject trollGo = null; Character troll = null;
@@ -355,6 +358,12 @@ namespace PilotHeim
                 if (Mathf.Abs(h.dmg - body) > 0.01f && Mathf.Abs(h.dmg - body * r201.HeadshotScale) > 0.01f) exact = false;
             }
             Line($"   R-201: {fired} shots, {hits.Count} hits, first {(hits.Count > 0 ? hits[0].dmg : 0):0.#} at {(hits.Count > 0 ? hits[0].dist : 0):0} u");
+            if (hits.Count == 0 && troll != null)
+            {
+                var cam0 = GameCamera.instance.transform.position;
+                if (Physics.Raycast(cam0, (troll.transform.position + Vector3.up * 2.2f - cam0).normalized, out var los0, 60f, Character.s_characterLayerMask | Character.s_groundRayMask, QueryTriggerInteraction.Ignore))
+                    Line($"   R-201 line of fire hits {los0.collider.transform.root.name}/{los0.collider.name} at {los0.distance:0.0} m (troll at {Vector3.Distance(cam0, troll.transform.position):0.0} m)");
+            }
             Check("R-201 hits use exact falloff damage", exact ? 1f : 0f, 1f, 0f);
             yield return new WaitForSeconds(0.3f);
             bool dead = !Alive();
@@ -424,6 +433,15 @@ namespace PilotHeim
         {
             bool assets = System.IO.File.Exists(System.IO.Path.Combine(PilotHeim.Assets.AssetLibrary.Dir ?? "", "jack.phm2"));
             if (!assets) { Line("   pilot body: no exported model, Valheim body kept"); yield break; }
+            if (System.IO.Directory.Exists(System.IO.Path.Combine(PilotHeim.Assets.AssetLibrary.Dir ?? "", "sounds")))
+            {
+                Line($"   sounds: {PilotHeim.Assets.TfAudio.Status}");
+                Check("Titanfall sounds decoded", PilotHeim.Assets.TfAudio.Loaded > 0 ? 1f : 0f, 1f, 0f);
+                bool played = PilotHeim.Assets.TfAudio.Play("fire:mp_weapon_rspn101", player.transform.position)
+                           && PilotHeim.Assets.TfAudio.Play("titan:inbound", player.transform.position)
+                           && PilotHeim.Assets.TfAudio.Play("move:doublejump", player.transform.position);
+                Check("Titanfall sounds play (R-201, titanfall, jump jet)", played ? 1f : 0f, 1f, 0f);
+            }
             var body = pc.Body;
             Check("Titanfall pilot body built", body != null && body.Ready ? 1f : 0f, 1f, 0f);
             if (body == null || !body.Ready) yield break;
@@ -525,6 +543,14 @@ namespace PilotHeim
             Check("titanfall lands after the drop time (s)", landT, PilotHeim.Titan.TitanController.DropTime, 0.1f);
             yield return new WaitForSeconds(0.4f);
             Check("titanfall hit the troll", titan.LastLandingHits > 0 ? 1f : 0f, 1f, 0f);
+            if (titan.Visual.RealModel)
+            {
+                Check("BT plays the hot-drop sequence", titan.Visual.Action == "hotdrop" || titan.Visual.Kneeling ? 1f : 0f, 1f, 0f);
+                float w1 = Time.time;
+                while (!titan.Visual.KneltAfterDrop && Time.time - w1 < 6f) yield return null;
+                Check("BT kneels after landing, ready to embark", titan.Visual.KneltAfterDrop ? 1f : 0f, 1f, 0f);
+                if (!titan.Visual.Kneeling) Line("   (BT already stood up to engage an enemy)");
+            }
             Line($"   titanfall: landing hits {titan.LastLandingHits}, troll hp {vhp:0} -> {(vch != null && vch.m_nview.IsValid() ? vch.GetHealth().ToString("0") : "dead")}");
             Check("titan health = segments + doomed", titan.Body.GetHealth(), titan.MaxHealth, 0.001f);
             Check("titan shield", titan.Shield, tt.HealthShield, 0f);
@@ -546,6 +572,14 @@ namespace PilotHeim
             titan.Embark(player);
             yield return new WaitForSeconds(0.5f);
             Check("pilot embarked (attached)", player.IsAttached() && titan.Phase == PilotHeim.Titan.TitanController.State.Piloted ? 1f : 0f, 1f, 0f);
+            if (titan.Visual.RealModel)
+            {
+                Line($"   embark sequence: {titan.Visual.Action}");
+                Check("BT plays an embark sequence", titan.Visual.Action != null && titan.Visual.Action.StartsWith("embark") ? 1f : 0f, 1f, 0f);
+                float w0 = Time.time;
+                while (titan.Visual.Locked && Time.time - w0 < 8f) yield return null;
+                Line($"   embark sequence took {Time.time - w0 + 0.5f:0.00} s");
+            }
 
             // drive: walk, sprint, dash
             // drive tests on a flat sky runway: a 3 m Titan cannot walk through a Valheim beech forest
@@ -643,7 +677,7 @@ namespace PilotHeim
             titan.Body.SetHealth(1f);
             var kill = new HitData(); kill.m_damage.m_blunt = 50f; kill.m_point = titan.transform.position;
             titan.Body.Damage(kill);
-            yield return new WaitForSeconds(1.0f);
+            yield return new WaitForSeconds(3.0f);
             Check("titan destroyed on death", PilotHeim.Titan.TitanController.Current == null ? 1f : 0f, 1f, 0f);
             Check("pilot ejected on titan death", !player.IsAttached() ? 1f : 0f, 1f, 0f);
             yield return new WaitForSeconds(3f);

@@ -37,6 +37,10 @@ namespace PilotHeim.Assets
                     if (File.Exists(bta)) TitanClips = PhClip.LoadAll(bta);
                     string jack = Path.Combine(Dir, "jack.phm2");
                     if (File.Exists(jack)) Pilot = PhModel.Load(jack);
+                    // read the compressed textures ahead so building BT / the pilot only uploads them
+                    if (Directory.Exists(TfMaterials.Root))
+                        foreach (var f in Directory.GetFiles(TfMaterials.Root, "*.phtex", SearchOption.AllDirectories))
+                            TfMaterials.Preloaded[f] = File.ReadAllBytes(f);
                     Status = $"Titanfall assets ready: BT {(Titan != null ? "model" : "-")}, {TitanClips?.Count ?? 0} clips, pilot {(Pilot != null ? "model" : "-")} ({sw.ElapsedMilliseconds} ms)";
                     Ready = true;
                 }

@@ -59,6 +59,7 @@ namespace PilotHeim.Pilot
 
         private void Build()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var visual = Player.m_visual.transform;
             var bones = AssetLibrary.Pilot.Build(visual, TfMaterials.Get, out var smr);
             Root = bones[0].parent;
@@ -108,7 +109,7 @@ namespace PilotHeim.Pilot
             savedCulling = an.cullingMode;
             an.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             Ready = true;
-            Plugin.Log.LogInfo($"Pilot body: Jack Cooper retargeted from Valheim ({map.Length} bones mapped, {bones.Length} bones, {smr.sharedMesh.vertexCount} verts, hip scale {hipScale:0.00})");
+            Plugin.Log.LogInfo($"Pilot body built in {sw.ElapsedMilliseconds} ms: Jack Cooper retargeted from Valheim ({map.Length} bones mapped, {bones.Length} bones, {smr.sharedMesh.vertexCount} verts, hip scale {hipScale:0.00})");
         }
 
         private struct Pair { public Transform V, J; public Quaternion Offset; }

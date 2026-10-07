@@ -84,6 +84,43 @@ generated from their own `server.dll`.
   health 11500, shield 1000; walk 280/280, sprint 420/420 (+-5 %), dash 685/685 and 50 power;
   XO-16 hits; disembark restores pilot movement; auto-titan kills a troll; death ejects the pilot.
 
+## 2026-10-07 — phase 5: real Titanfall models, animations, textures and sounds
+- **Models.** `tools/mdl53.py` reads Titanfall 2 `studiomdl` v53 directly from the user's VPKs:
+  header is Source's plus a name offset (+4 on every later field); bones are 244 bytes (adds
+  scale/scalescale); VTX (0x1ac), VVD (0x1b0) and PHY (0x1b8) are embedded; v7 strip groups are 33
+  bytes. BT's bind skeleton is "exploded" (hand bones in cm vs anims in inches, ratio 2.54), so the
+  `@ref` animation is used as the rest pose.
+- **Animations.** `tools/anim53.py` decodes v53 per-bone RLE records: posscale, bone, flags
+  (0x02 raw pos Vector48, 0x04 raw rot Quaternion64, 0x08 raw scale, 0x10 rest rotation), Source
+  RLE streams with per-bone `rotscale` and rest added unless delta, sections for long clips.
+  Verified by skinning BT into `@ref` and walk poses offline (`tools/phm_preview.py`).
+- **Export.** `tools/tf2_export.py` writes Unity-space PHM2 meshes (metres, Y up, mirrored axes,
+  flipped winding) and PHA2 clips. Clip speeds come from the `jx_c_start` motion tracker
+  (walk 274 u/s, run 474 u/s, matching the set file's 280/420 class speeds). Hot-drop impact
+  from the fastest hip drop: **5.03 s** into `@at_hotdrop_drop_2knee_turbo`.
+- **BT-7274 in game.** Real model on Valheim's `Custom/Creature` shader with the user's
+  Legion+-exported textures, XO-16 on `ja_r_propHand` through the gun's `r_hand_ik` frame
+  (Titanfall IK-pins the hand to the gun; we do the inverse). Clips: idle, walk/run x4 directions,
+  sprint, dash x4 with ground-speed sync; hot drop timed so its impact frame meets the 2.5 s drop;
+  kneels and waits for the pilot (stands up for enemies or a pilot > 2000 u away); embark from
+  the kneel (`@at_MP_embark`, 3.8 s) or kneel-down from the pilot's side; disembark; death fall.
+- **Jack Cooper replaces the Valheim body.** Valheim's player is a Unity Humanoid
+  (`player_maleAvatar`); Unity's runtime-avatar retarget misread the A-pose, so the mod uses a
+  per-bone rotation retarget: pilot = valheim × inverse(valheim T-pose) × pilot T-pose, hips scaled
+  by leg height. Every Valheim action still animates; weapons stay on Valheim's hand bones.
+  Found by the self-test: Valheim's animator culls bone updates once its body is hidden
+  (`CullUpdateTransforms`) — it is set to always animate while the pilot body shows.
+- **Sounds.** Legion+ exported the user's `general.mbnk` (34,402 waves); `tools/tf2_sounds.py`
+  picks 65 for 23 gameplay slots (per-weapon fire, grapple, jump jets, wallrun, slide, cloak,
+  stim, explosions, Titanfall inbound/landing, embark, disembark, Titan dash). WAVs decode on a
+  worker thread, 5.1 mixes fold to mono, playback goes through Valheim's SFX mixer.
+- **Performance.** `tools/tf2_textures.py` pre-compresses textures to DXT1/DXT5 (normals as
+  DXT5nm) with mip chains, read on the worker thread and uploaded raw: building BT went from
+  **7.5 s to 0.2 s**, the pilot body from 3.5 s to 0.09 s. A loading line shows while assets parse.
+- Self-test hardening: fresh random test world every run, weapon tests on the sky arena (a tree
+  once blocked the line of fire on terrain), retarget sampled after `LateUpdate`.
+- Self-test: **62/62 pass, zero errors**, on three consecutive fresh random worlds.
+
 ## Remaining
-Models, animations and sounds from the user's install (Legion+ / runtime loader, phase 5) ·
-final polish and README.
+Optional polish: Titan cockpit (first-person) view, pilot-specific Titanfall animations for
+wallrun/slide layered over Valheim's, BT voice lines.

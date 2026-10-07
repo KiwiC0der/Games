@@ -12,6 +12,7 @@ namespace PilotHeim.Assets
         public float Fps;
         public bool Loop;
         public float SpeedUnits;       // Titanfall units/s of the jx_c_start motion tracker (0 = in place)
+        public float Mark;             // event time in seconds (hot drop: ground impact)
         public int Frames, Bones;
         public float[] Data;           // frames * bones * 7
         public float Length => Mathf.Max(1, Frames - 1) / Fps;
@@ -21,12 +22,16 @@ namespace PilotHeim.Assets
             var clips = new Dictionary<string, PhClip>();
             using (var r = new BinaryReader(File.OpenRead(path)))
             {
-                if (Encoding.ASCII.GetString(r.ReadBytes(4)) != "PHA1") throw new InvalidDataException(path + ": not PHA1");
+                string magic = Encoding.ASCII.GetString(r.ReadBytes(4));
+                if (magic != "PHA1" && magic != "PHA2") throw new InvalidDataException(path + ": not PHA1/PHA2");
+                bool v2 = magic == "PHA2";
                 int nb = r.ReadInt32(), nc = r.ReadInt32();
                 for (int c = 0; c < nc; c++)
                 {
                     var k = new PhClip { Key = Encoding.UTF8.GetString(r.ReadBytes(r.ReadUInt16())), Bones = nb };
-                    k.Fps = r.ReadSingle(); k.Loop = r.ReadInt32() != 0; k.SpeedUnits = r.ReadSingle(); k.Frames = r.ReadInt32();
+                    k.Fps = r.ReadSingle(); k.Loop = r.ReadInt32() != 0; k.SpeedUnits = r.ReadSingle();
+                    if (v2) k.Mark = r.ReadSingle();
+                    k.Frames = r.ReadInt32();
                     k.Data = new float[k.Frames * nb * 7];
                     var raw = r.ReadBytes(k.Data.Length * 4);
                     System.Buffer.BlockCopy(raw, 0, k.Data, 0, raw.Length);
@@ -69,12 +74,12 @@ namespace PilotHeim.Assets
 
         public bool Has(string key) => Clips != null && Clips.ContainsKey(key);
 
-        public void Play(string key, float crossfade = 0.2f, bool restart = false)
+        public void Play(string key, float crossfade = 0.2f, bool restart = false, float startTime = 0f)
         {
             if (Clips == null || !Clips.TryGetValue(key, out var c)) return;
             if (c == cur && !restart) return;
             prev = cur; prevTime = time;
-            cur = c; time = 0f; Current = key;
+            cur = c; time = Mathf.Max(0f, startTime); Current = key;
             fadeLen = prev != null ? Mathf.Max(0.01f, crossfade) : 0f; fade = 0f;
         }
 

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using PilotHeim.Assets;
 using PilotHeim.Data;
 using PilotHeim.Pilot;
 using UnityEngine;
@@ -21,6 +22,7 @@ namespace PilotHeim.Titan
         public const float EmbarkDist = 250f;           // grapple_titanEmbarkDist
         private const float AiRange = 2400f;            // u
         private const float FollowDist = 500f;          // u
+        private const float KneelWaitDist = 2000f;      // u: a fresh Titan waits kneeling for its pilot (Titanfall MP)
 
         public static TitanController Current;
         public static TitanTuning Tuning;
@@ -117,13 +119,17 @@ namespace PilotHeim.Titan
             beacon = Effects.NewLine(0.25f, new Color(1f, 0.15f, 0.1f, 0.85f));
             Current = this;
             Plugin.Log.LogInfo($"Titanfall inbound at {target} (hp {MaxHealth}, shield {ShieldMax})");
+            Effects.Sound("titan:inbound", owner.transform.position);
+            // BT's own hot-drop sequence, offset so its ground impact frame lands with the simulated drop
+            if (visual.RealModel && AssetLibrary.TitanClips.TryGetValue("hotdrop", out var hd))
+                visual.PlayAction("hotdrop", Mathf.Max(0f, hd.Mark - DropTime), 0f);
         }
 
         // ------------------------------------------------------------- frame tick
         private void Update()
         {
             if (Body == null || Owner == null) { Destroy(gameObject); return; }
-            if (dying) { ZNetScene.instance.Destroy(gameObject); return; }
+            if (dying) { if (Time.time >= destroyAt) ZNetScene.instance.Destroy(gameObject); return; }
             float dt = Time.deltaTime;
             UpdateDrop();
             if (Phase == State.Dropping) return;
@@ -155,22 +161,35 @@ namespace PilotHeim.Titan
             {
                 Arsenal.BackgroundTick(dt);
                 AiThink();
+                // a kneeling BT gets up when he has to follow the pilot or fight
+                if (visual.Kneeling && (aiTarget != null || (Following && AiDistToOwner() > KneelWaitDist)))
+                {
+                    Plugin.Log.LogInfo($"BT stands up: {(aiTarget != null ? "enemy " + aiTarget.name + $" at {Vector3.Distance(aiTarget.transform.position, transform.position):0} m" : $"pilot {AiDistToOwner():0} u away")}");
+                    visual.StandUp();
+                }
             }
         }
 
         // UpdateWalking patch routes the Titan's physics tick here.
         public void PhysicsTick(float dt)
         {
-            if (Phase == State.Dropping) return;
+            if (Phase == State.Dropping || dying) return;
             Vector3 look = Phase == State.Piloted ? inLook : AiLook();
             Vector3 yaw = Vector3.ProjectOnPlane(look, Vector3.up);
             if (yaw.sqrMagnitude < 1e-4f) yaw = transform.forward;
             yaw.Normalize();
             Vector3 right = Vector3.Cross(Vector3.up, yaw);
             Vector3 move = Phase == State.Piloted ? inMove : AiMove();
+            if (visual.Locked)                                                           // sequences play in place
+            {
+                move = Vector3.zero; dashQueued = false;
+                yaw = Vector3.ProjectOnPlane(transform.forward, Vector3.up).normalized; right = Vector3.Cross(Vector3.up, yaw);
+            }
             float fwd = Vector3.Dot(move, yaw), side = Vector3.Dot(move, right);
             bool sprint = Phase == State.Piloted ? inRun : (Following && aiTarget == null && AiDistToOwner() > FollowDist * 2f);
+            bool wasDashing = Motor.Dashing;
             Motor.FixedStep(dt, yaw, fwd, side, sprint, dashQueued, Mathf.Lerp(1f, 0.5f, Arsenal.AdsFrac));
+            if (Motor.Dashing && !wasDashing) Effects.Sound("titan:dash", transform.position);
             dashQueued = false;
             // the Titan turns its whole body toward the aim
             transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(yaw), 180f * dt);
@@ -220,6 +239,7 @@ namespace PilotHeim.Titan
             }
             Effects.Explosion(dropTo, Tuning.HotdropRadius * U);
             Owner.Message(MessageHud.MessageType.Center, "BT-7274 online");
+            Effects.Sound("titan:land", dropTo, 1f);
         }
 
         public int LastLandingHits;
@@ -245,6 +265,14 @@ namespace PilotHeim.Titan
             if (cam != null) { savedCamMax = cam.m_maxDistance; savedCamDist = cam.m_distance; cam.m_maxDistance = 14f; cam.m_distance = 10f; }
             inLook = p.m_lookDir;
             Owner.Message(MessageHud.MessageType.Center, "Pilot embarked");
+            if (visual.RealModel)
+            {
+                // kneeling BT stands up with the pilot inside; a standing BT kneels on the pilot's side first
+                Vector3 l = transform.InverseTransformPoint(p.transform.position);
+                string side = Mathf.Abs(l.z) >= Mathf.Abs(l.x) ? (l.z >= 0f ? "f" : "b") : (l.x >= 0f ? "r" : "l");
+                visual.PlayAction(visual.Kneeling ? "embark_kneel" : "embark_" + side);
+            }
+            Effects.Sound("titan:embark", transform.position);
         }
 
         public void Disembark(bool eject)
@@ -262,6 +290,8 @@ namespace PilotHeim.Titan
             PilotController.Local?.Motor.ResetVelocity();
             RestoreCamera();
             Arsenal.RestoreFov();
+            Effects.Sound("titan:disembark", transform.position);
+            visual.PlayAction("disembark");
         }
 
         private void RestoreCamera()
@@ -422,10 +452,15 @@ namespace PilotHeim.Titan
             Owner?.Message(MessageHud.MessageType.Center, "Titan lost");
             TitanMeter.Fraction = 0f;
             dying = true;
-            if (visual != null) visual.gameObject.SetActive(false);
+            // Valheim still reads the ZDO after OnDeath, so the wreck goes at the earliest next frame;
+            // the real BT falls with his death sequence first
+            float fall = visual != null ? visual.PlayAction("death") : 0f;
+            if (fall <= 0f && visual != null) visual.gameObject.SetActive(false);
+            destroyAt = Time.time + Mathf.Min(fall, 2.2f);
         }
 
         private bool dying;
+        private float destroyAt;
 
         private void OnDestroy()
         {

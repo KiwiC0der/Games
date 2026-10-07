@@ -59,7 +59,13 @@ namespace PilotHeim.Pilot
         private Vector3 viewFwd, viewRight, yawFwd;
         public float ViewRoll;                                 // wallrun camera tilt (degrees)
 
-        public string LastEvent = "";
+        private string lastEvent = "";
+        /// <summary>Last movement event (jump, doublejump, wallrun, slide, land, grapple_*); each plays its Titanfall sound.</summary>
+        public string LastEvent
+        {
+            get => lastEvent;
+            set { lastEvent = value; if (value != null && player != null) Effects.Sound("move:" + value.Split(':')[0], player.transform.position); }
+        }
 
         public PilotMotor(Player player, PilotTuning tuning)
         {

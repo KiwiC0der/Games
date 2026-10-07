@@ -55,6 +55,7 @@ namespace PilotHeim.Pilot
         {
             if (Phase != State.Idle) { if (Attached) Detach("refire"); return; }
             if (Power < t.GrapplePowerRequired) { player.Message(MessageHud.MessageType.Center, "Grapple recharging"); return; }
+            Effects.Sound("grapple_fire", aimOrigin);
             float range = t.GrappleMaxLength * U;
             var mask = Character.s_groundRayMask | Character.s_characterLayerMask;
             ropeTip = Hand;
