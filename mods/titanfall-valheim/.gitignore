@@ -1,0 +1,15 @@
+# Never commit game files. Extracted Titanfall 2 data, decompiled Valheim code and
+# converted assets live outside the repo in %USERPROFILE%\Documents\PilotHeim-local.
+bin/
+obj/
+*.user
+local.props
+/extracted/
+/decomp/
+*.mdl
+*.rpak
+*.starpak
+*.vpk
+*.wav
+*.dds
+*.set

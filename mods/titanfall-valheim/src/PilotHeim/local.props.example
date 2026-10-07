@@ -1,0 +1,6 @@
+<Project>
+  <!-- Copy to local.props and adjust. local.props is git-ignored. -->
+  <PropertyGroup>
+    <ValheimDir>C:\Program Files (x86)\Steam\steamapps\common\Valheim</ValheimDir>
+  </PropertyGroup>
+</Project>

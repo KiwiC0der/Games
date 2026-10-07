@@ -1,0 +1,43 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="local.props" Condition="Exists('local.props')" />
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>PilotHeim</AssemblyName>
+    <RootNamespace>PilotHeim</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile><NoWarn>MSB3277</NoWarn>
+    <Managed>$(ValheimDir)\valheim_Data\Managed</Managed>
+    <BepInExCore>$(ValheimDir)\BepInEx\core</BepInExCore>
+    <PluginOut>$(ValheimDir)\BepInEx\plugins\PilotHeim</PluginOut>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Krafs.Publicizer" Version="2.3.0" PrivateAssets="all" />
+    <Publicize Include="assembly_valheim" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="$(BepInExCore)\BepInEx.dll" Private="false" />
+    <Reference Include="$(BepInExCore)\0Harmony.dll" Private="false" />
+    <Reference Include="$(Managed)\assembly_valheim.dll" Private="false" />
+    <Reference Include="$(Managed)\assembly_utils.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.PhysicsModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.AnimationModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.AudioModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.InputLegacyModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.TextRenderingModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.ParticleSystemModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.UI.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.ImageConversionModule.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.AssetBundleModule.dll" Private="false" />
+    <Reference Include="$(Managed)\Unity.InputSystem.dll" Private="false" />
+  </ItemGroup>
+  <Target Name="DeployPlugin" AfterTargets="Build" Condition="Exists('$(ValheimDir)\BepInEx')">
+    <MakeDir Directories="$(PluginOut)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginOut)" />
+  </Target>
+</Project>
