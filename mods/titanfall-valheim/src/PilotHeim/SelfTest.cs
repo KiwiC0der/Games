@@ -25,6 +25,7 @@ namespace PilotHeim
         private const float U = PilotTuning.MetersPerUnit;
 
         private static bool started;
+        public static GameObject WatchedObject;
         private readonly StringBuilder report = new StringBuilder();
         private int pass, fail;
         private PilotTuning t;
@@ -40,7 +41,40 @@ namespace PilotHeim
             go.AddComponent<SelfTest>();
         }
 
-        private void Start() => StartCoroutine(Run());
+        private bool finished;
+
+        private void Start()
+        {
+            StartCoroutine(Guard(Run(), "self-test"));
+            StartCoroutine(Watchdog());
+        }
+
+        private IEnumerator Watchdog()
+        {
+            yield return new WaitForSecondsRealtime(300f);
+            if (!finished) { Fail("watchdog", "self-test did not finish in 300 s"); Finish(); }
+        }
+
+        /// <summary>Runs a coroutine, turning any exception into a FAIL line instead of a silent hang.</summary>
+        private IEnumerator Guard(IEnumerator inner, string name)
+        {
+            while (true)
+            {
+                object cur;
+                try
+                {
+                    if (!inner.MoveNext()) break;
+                    cur = inner.Current;
+                }
+                catch (Exception e)
+                {
+                    Fail(name, e.GetType().Name + ": " + e.Message + " @ " + e.StackTrace?.Split('\n')[0]);
+                    yield break;
+                }
+                if (cur is IEnumerator nested) yield return Guard(nested, name);
+                else yield return cur;
+            }
+        }
 
         private IEnumerator Run()
         {
@@ -191,6 +225,9 @@ namespace PilotHeim
             Check("no fall damage from 40 m", Mathf.Abs(player.GetHealth() - hp) < 0.01f ? 1f : 0f, 1f, 0f);
             player.SetGodMode(true);
 
+            // --- T10.. pilot weapons against a real Valheim creature
+            yield return Guard(WeaponTests(player, m, pc.Arsenal, input, spawnPos), "weapons");
+
             // --- T9 Valheim still Valheim
             Check("inventory intact", player.GetInventory() != null ? 1f : 0f, 1f, 0f);
             m.Override = null;
@@ -234,6 +271,121 @@ namespace PilotHeim
             Box("PilotHeim_Wall", c + new Vector3(6.5f, 6f, 0f), new Vector3(1f, 12f, 60f));
             Box("PilotHeim_Pillar", c + new Vector3(-12f, 10f, 15f), new Vector3(1.2f, 20f, 1.2f));
             return c;
+        }
+
+        private IEnumerator WeaponTests(Player player, PilotMotor m, PilotArsenal a, PilotMotor.InputState input, Vector3 ground)
+        {
+            if (a == null) { Fail("weapons", "arsenal not created"); yield break; }
+            // fight on real terrain, a fresh troll per weapon
+            Vector3 stand = ground; stand.y = ZoneSystem.instance.GetGroundHeight(stand);
+            Vector3 spot = stand + Vector3.forward * 15f; spot.y = ZoneSystem.instance.GetGroundHeight(spot);
+            var prefab = ZNetScene.instance.GetPrefab("Troll");
+            if (prefab == null) { Fail("weapons", "Troll prefab missing"); yield break; }
+            GameObject trollGo = null; Character troll = null;
+            var hits = new List<(float dmg, float dist)>();
+            a.OnHit = (d, c, dist) => { if (troll != null && c == troll) hits.Add((d, dist)); };
+
+            IEnumerator Spawn(Vector3 at)
+            {
+                if (trollGo != null) Destroy(trollGo);
+                trollGo = Instantiate(prefab, at + Vector3.up * 0.3f, Quaternion.Euler(0f, 180f, 0f));
+                troll = trollGo.GetComponent<Character>();
+                var ai = trollGo.GetComponent<MonsterAI>();
+                if (ai != null) ai.enabled = false;
+                hits.Clear();
+                yield return new WaitForSeconds(0.8f);
+            }
+            bool Alive() => troll != null && troll.m_nview != null && troll.m_nview.IsValid() && !troll.IsDead();
+            void Aim()
+            {
+                if (troll == null) return;
+                input.Look = ((troll.transform.position + Vector3.up * 2.2f) - GameCamera.instance.transform.position).normalized;
+            }
+            IEnumerator Equip(System.Predicate<WeaponDef> pick)
+            {
+                a.Current = Mathf.Max(0, a.Loadout.FindIndex(pick));
+                a.Drawn = true;
+                yield return new WaitForSeconds(a.Weapon.DeployTime + 0.15f);
+                Aim(); yield return new WaitForFixedUpdate(); yield return new WaitForFixedUpdate();
+            }
+            void Pull(bool fire, bool ordnance = false) => a.Update(Time.deltaTime, true, fire, false, false, false, false, false, ordnance);
+
+            yield return Teleport(player, stand + Vector3.up * 0.3f);
+            yield return Settle(player, input);
+
+            // --- R-201: fire rate, falloff damage, kill, reload
+            yield return Spawn(spot);
+            yield return Equip(w => w.Id == "mp_weapon_rspn101");
+            var r201 = a.Weapon;
+            float hp0 = troll.GetHealth();
+            int shots0 = a.ShotsFired;
+            float t0 = Time.time;
+            while (Time.time - t0 < 1.0f) { Aim(); Pull(true); yield return null; }
+            int fired = a.ShotsFired - shots0;
+            Check("R-201 fire rate (shots/s)", fired / 1.0f, r201.FireRate, 0.12f);
+            bool exact = hits.Count > 0;
+            foreach (var h in hits)
+            {
+                float body = r201.DamageAt(h.dist);
+                if (Mathf.Abs(h.dmg - body) > 0.01f && Mathf.Abs(h.dmg - body * r201.HeadshotScale) > 0.01f) exact = false;
+            }
+            Line($"   R-201: {fired} shots, {hits.Count} hits, first {(hits.Count > 0 ? hits[0].dmg : 0):0.#} at {(hits.Count > 0 ? hits[0].dist : 0):0} u");
+            Check("R-201 hits use exact falloff damage", exact ? 1f : 0f, 1f, 0f);
+            yield return new WaitForSeconds(0.3f);
+            bool dead = !Alive();
+            Line($"   troll after 1 s of R-201: {(dead ? "killed" : $"hp {troll.GetHealth():0}/{hp0:0}")}");
+            Check("troll damaged or killed by R-201", dead || troll.GetHealth() < hp0 ? 1f : 0f, 1f, 0f);
+            while (a.Clip > 0 && Time.time - t0 < 8f) { Pull(true); yield return null; }
+            float reloadStart = Time.time;
+            while (a.Reloading && Time.time - reloadStart < 10f) { Pull(false); yield return null; }
+            Check("R-201 empty reload time (s)", Time.time - reloadStart, r201.ReloadEmptyTime, 0.08f);
+            Check("R-201 clip refilled", a.Clip, r201.ClipSize, 0f);
+
+            // --- EVA-8: one cone blast = one hit per target
+            yield return Spawn(spot);
+            yield return Equip(w => w.IsShotgun);
+            Pull(false); Pull(true);
+            yield return new WaitForFixedUpdate();
+            Check("EVA-8 blast hits troll exactly once", hits.Count, 1f, 0f);
+            if (hits.Count > 0) Line($"   EVA-8: {hits[0].dmg:0} at {hits[0].dist:0} u (inverse falloff, near {a.Weapon.DamageNear} to {a.Weapon.NearDist} u)");
+
+            // --- Kraber: ballistic bolt
+            yield return Spawn(spot);
+            yield return Equip(w => w.IsProjectile);
+            Pull(false); Pull(true);
+            for (int i = 0; i < 40 && hits.Count == 0; i++) yield return new WaitForFixedUpdate();
+            Check("Kraber bolt hits troll", hits.Count > 0 ? 1f : 0f, 1f, 0f);
+            if (hits.Count > 0) Line($"   Kraber: {hits[0].dmg:0} at {hits[0].dist:0} u");
+
+            // --- Frag: lobbed at the troll's feet from 7 m
+            yield return Spawn(spot);
+            a.Drawn = false;
+            a.OrdnanceAmmo = 200f;
+            yield return Teleport(player, troll.transform.position + new Vector3(0f, 0.3f, -7f));
+            yield return Settle(player, input);
+            input.Look = ((troll.transform.position + Vector3.up * 0.3f) - GameCamera.instance.transform.position).normalized;
+            yield return new WaitForFixedUpdate(); yield return new WaitForFixedUpdate();
+            Pull(false, true);
+            float ft = Time.time;
+            while (hits.Count == 0 && Time.time - ft < a.OrdnanceDef.FuseTime + 2f) yield return new WaitForFixedUpdate();
+            Check("frag explosion damages troll", hits.Count > 0 ? 1f : 0f, 1f, 0f);
+            if (hits.Count > 0) Line($"   frag: {hits[0].dmg:0} blunt at {hits[0].dist:0} u (explosion_damage {a.OrdnanceDef.ExplosionDamage}, radius {a.OrdnanceDef.ExplosionRadius} u)");
+
+            // --- Cloak vs the troll's senses
+            yield return Spawn(spot);
+            var ai2 = trollGo.GetComponent<MonsterAI>();
+            if (ai2 != null)
+            {
+                ai2.enabled = true;
+                a.SetCloakForTest(5f);
+                Check("cloaked pilot not sensed by troll", ai2.CanSenseTarget(player) ? 0f : 1f, 1f, 0f);
+                a.SetCloakForTest(0f);
+                yield return null;
+                Check("visible pilot sensed by troll", ai2.CanSenseTarget(player) ? 1f : 0f, 1f, 0f);
+            }
+            a.OnHit = null;
+            a.Drawn = false;
+            if (trollGo != null) Destroy(trollGo);
         }
 
         private IEnumerator GrappleRealTree(Player player, PilotMotor m, PilotMotor.InputState input, Vector3 near)
@@ -330,6 +482,8 @@ namespace PilotHeim
 
         private void Finish()
         {
+            if (finished) return;
+            finished = true;
             Line($"RESULT: {pass} passed, {fail} failed");
             File.WriteAllText(Path.Combine(Paths.BepInExRootPath, "PilotHeim_selftest.txt"), report.ToString());
             Application.Quit();

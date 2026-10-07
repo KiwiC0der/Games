@@ -32,6 +32,23 @@ generated from their own `server.dll`.
 - Self-test: **20/20 pass, zero errors.** Real tree: hooked at 14.7 m, pulled to 2.6 m, peak
   675 u/s (ramp target 800).
 
+## 2026-10-07 � phase 3: weapons, tacticals, ordnance
+- Weapons load from the user's scripts/weapons/*.txt (base + SP_BASE or MP_BASE profile).
+  Default loadout R-201, Wingman, EVA-8, Kraber; tactical on Q (Grapple/Cloak/Stim/PulseBlade);
+  frag on G. Z draws/holsters (holstered = Valheim weapons/tools/building), X swaps, R reloads.
+- Damage falloff recovered exactly from server.dll CalcBulletShotDamage (FUN_180235b10):
+  integer damage, linear near->far->very-far, and inverse falloff near*inv/(d-near+inv).
+- EVA-8 follows ShotgunBlast (one hit per target in a cone of half the spread, max 8);
+  Kraber fires ballistic bolts (bolt_speed, bolt_gravity_amount*sv_gravity).
+- Hits are Valheim HitData (pierce for bullets, blunt for explosions) so resistances,
+  skills (Crossbows), loot and death stay Valheim's. Cloak hides you from AI senses.
+- Stim speed = 1 + 0.4 x 2.0 (sh_stim.gnut). Stim healing rate and pulse-blade
+  radius (explosionradius) / active time (grenade_ignition_time) are best readings
+  of the data, not confirmed constants.
+- Self-test: **30/30 pass, zero errors.** R-201 13 shots/s (13.5), exact falloff damage,
+  empty reload 2.921 s (2.92); EVA-8 one hit per blast; Kraber 200; frag 74 at 203 u
+  (= 200 x linear falloff); cloak blocks troll senses.
+
 ## Remaining
 Grapple aim fix · weapons & tacticals (phase 3) · Titan call-in/embark (phase 4) ·
 models/animations/sounds via Legion+ / runtime loader (phase 5).

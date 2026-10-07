@@ -12,6 +12,7 @@ namespace PilotHeim.Pilot
         public static PilotController Local { get; private set; }
         public Player Player { get; private set; }
         public PilotMotor Motor { get; private set; }
+        public PilotArsenal Arsenal { get; private set; }
         public static PilotTuning Tuning;
 
         public bool Active => Plugin.Enabled.Value && Tuning != null && Player != null && !Player.IsDead()
@@ -27,12 +28,20 @@ namespace PilotHeim.Pilot
         {
             Player = GetComponent<Player>();
             Motor = new PilotMotor(Player, Tuning);
+            try
+            {
+                Arsenal = new PilotArsenal(Player, Motor, Tuning, PilotArsenal.WeaponsDir, Plugin.Loadout.Value.Split(','),
+                                           Plugin.TacticalAbility.Value, Plugin.CampaignWeaponProfile.Value);
+                Motor.Arsenal = Arsenal;
+            }
+            catch (System.Exception e) { Plugin.Log.LogError("Pilot weapons unavailable: " + e); }
             Local = this;
         }
 
         private void OnDestroy()
         {
             Motor?.Grapple.Destroy();
+            Arsenal?.Destroy();
             RestoreCollider();
             if (Local == this) Local = null;
         }
@@ -40,22 +49,27 @@ namespace PilotHeim.Pilot
         private void Update()
         {
             if (Player != Player.m_localPlayer) return;
-            if (!Active) { RestoreCollider(); return; }
+            if (!Active) { RestoreCollider(); Arsenal?.RestoreFov(); return; }
             StoreCollider();
             if (Motor.Override != null) return;           // self-test drives the inputs
             bool input = Player.TakeInput();
             crouchHeld = input && Input.GetKey(Plugin.KeySlide.Value);
             if (input && ZInput.GetButtonDown("Jump")) Motor.QueueJump();
             Motor.SetJumpHeld(input && ZInput.GetButton("Jump"));
-            if (input && Input.GetKeyDown(Plugin.KeyTactical.Value))
-            {
-                var cam = GameCamera.instance != null ? GameCamera.instance.transform : null;
-                if (cam != null) Motor.Grapple.Fire(cam.position, cam.forward);
-            }
+            bool ui = InventoryGui.IsVisible() || Minimap.IsOpen() || Menu.IsVisible() || Player.InPlaceMode() || TextInput.IsVisible() || global::Console.IsVisible();
+            bool gunInput = input && !ui;
+            Arsenal?.Update(Time.deltaTime, gunInput, Input.GetMouseButton(0), Input.GetMouseButton(1),
+                            Input.GetKeyDown(Plugin.KeyReload.Value), Input.GetKeyDown(Plugin.KeyWeaponToggle.Value),
+                            Input.GetKeyDown(Plugin.KeyWeaponSwap.Value), Input.GetKeyDown(Plugin.KeyTactical.Value),
+                            Input.GetKeyDown(Plugin.KeyOrdnance.Value));
         }
 
         /// <summary>Called from the UpdateWalking patch inside Valheim's FixedUpdate.</summary>
-        public void PhysicsTick(float dt) => Motor.FixedStep(dt, Motor.Override != null ? Motor.Override.Crouch : crouchHeld);
+        public void PhysicsTick(float dt)
+        {
+            Motor.FixedStep(dt, Motor.Override != null ? Motor.Override.Crouch : crouchHeld);
+            Arsenal?.FixedTick(dt);
+        }
 
         private void StoreCollider()
         {
@@ -91,6 +105,40 @@ namespace PilotHeim.Pilot
             GUI.Label(new Rect(x, y + 44, w, 20), "TITAN");
             Bar(new Rect(x + 70, y + 48, w - 70, 10), TitanMeter.Fraction, new Color(1f, 0.62f, 0.2f));
             GUI.Label(new Rect(x, y + 64, w, 20), TitanMeter.Ready ? $"Titan ready - press {Plugin.KeyTitanfall.Value}" : "");
+            DrawArsenalHud(x, y, w);
+        }
+
+        private void DrawArsenalHud(float x, float y, int w)
+        {
+            var a = Arsenal;
+            if (a == null) return;
+            var m = Motor;
+            float y2 = y - 74;
+            GUI.color = new Color(0f, 0f, 0f, 0.45f);
+            GUI.DrawTexture(new Rect(x - 8, y2 - 8, w + 16, 66), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+            string gun = a.Weapon != null ? a.Weapon.PrintName.Replace("#WPN_", "").Replace("_SHORT", "") : "-";
+            GUI.Label(new Rect(x, y2, w, 20), a.Drawn && a.Weapon != null
+                ? $"{gun}   {a.Clip}/{(int)a.Weapon.ClipSize}{(a.Reloading ? "  RELOADING" : "")}"
+                : $"{gun} (holstered - {Plugin.KeyWeaponToggle.Value})");
+            string tac = a.Tactical == PilotArsenal.TacticalKind.Grapple ? "GRAPPLE" : a.Tactical.ToString().ToUpperInvariant();
+            float tf = a.Tactical == PilotArsenal.TacticalKind.Grapple ? m.Grapple.Power / 100f : a.TacticalAmmo / 200f;
+            GUI.Label(new Rect(x, y2 + 20, w, 20), a.Cloaked ? "CLOAKED" : a.Stimmed ? "STIM" : tac);
+            Bar(new Rect(x + 70, y2 + 24, w - 70, 10), tf, new Color(0.35f, 0.75f, 1f));
+            GUI.Label(new Rect(x, y2 + 38, w, 20), "FRAG");
+            Bar(new Rect(x + 70, y2 + 42, w - 70, 10), a.OrdnanceAmmo / 200f, new Color(0.9f, 0.9f, 0.3f));
+            // pulse blade reveals are drawn through walls, like Titanfall's sonar highlight
+            var cam = Camera.main;
+            if (cam == null) return;
+            foreach (var kv in a.Revealed)
+            {
+                if (kv.Key == null) continue;
+                Vector3 sp = cam.WorldToScreenPoint(kv.Key.GetCenterPoint());
+                if (sp.z <= 0f) continue;
+                GUI.color = new Color(1f, 0.35f, 0.15f, 0.85f);
+                GUI.DrawTexture(new Rect(sp.x - 6, Screen.height - sp.y - 6, 12, 12), Texture2D.whiteTexture);
+            }
+            GUI.color = Color.white;
         }
 
         private static void Bar(Rect r, float frac, Color c)

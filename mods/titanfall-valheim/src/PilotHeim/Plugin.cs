@@ -35,6 +35,13 @@ namespace PilotHeim
         public static ConfigEntry<KeyCode> KeyEmbark;
         public static ConfigEntry<KeyCode> KeyToggleMod;
         public static ConfigEntry<bool> SelfTest;
+        public static ConfigEntry<string> Loadout;
+        public static ConfigEntry<PilotHeim.Pilot.PilotArsenal.TacticalKind> TacticalAbility;
+        public static ConfigEntry<bool> CampaignWeaponProfile;
+        public static ConfigEntry<float> DamageScale;
+        public static ConfigEntry<KeyCode> KeyWeaponToggle;
+        public static ConfigEntry<KeyCode> KeyWeaponSwap;
+        public static ConfigEntry<KeyCode> KeyReload;
 
         public static PlayerSettings Pilot { get; private set; }
         public static string ScriptsDir => Path.Combine(DataDir.Value, "mp_common", "scripts");
@@ -55,6 +62,16 @@ namespace PilotHeim
             KeyTitanfall = Config.Bind("Controls", "Titanfall", KeyCode.V, "Call in your Titan when the meter is full.");
             KeyEmbark = Config.Bind("Controls", "Embark", KeyCode.F, "Embark / disembark your Titan.");
             KeyToggleMod = Config.Bind("Controls", "TogglePilot", KeyCode.F8, "Switch between pilot and vanilla Valheim movement.");
+            Loadout = Config.Bind("Pilot", "Loadout", "mp_weapon_rspn101,mp_weapon_wingman,mp_weapon_shotgun,mp_weapon_sniper",
+                "Titanfall 2 weapon script names to carry, in swap order (R-201, Wingman, EVA-8, Kraber).");
+            TacticalAbility = Config.Bind("Pilot", "Tactical", PilotHeim.Pilot.PilotArsenal.TacticalKind.Grapple,
+                "Pilot tactical on Q: Grapple, Cloak, Stim or PulseBlade (one at a time, like Titanfall).");
+            CampaignWeaponProfile = Config.Bind("Pilot", "CampaignWeaponStats", true,
+                "Use the campaign (SP_BASE) weapon/ability values, which suit Valheim's PvE. False = multiplayer (MP_BASE).");
+            DamageScale = Config.Bind("Pilot", "DamageScale", 1f, "Multiplier on Titanfall damage values (1 = exact).");
+            KeyWeaponToggle = Config.Bind("Controls", "DrawHolsterGun", KeyCode.Z, "Draw / holster the pilot gun (holstered = Valheim weapons and tools).");
+            KeyWeaponSwap = Config.Bind("Controls", "SwapGun", KeyCode.X, "Cycle pilot guns.");
+            KeyReload = Config.Bind("Controls", "Reload", KeyCode.R, "Reload the pilot gun.");
             SelfTest = Config.Bind("Debug", "SelfTest", false, "Load a test world, run scripted movement checks and quit, writing results next to the log.");
 
             try

@@ -24,6 +24,7 @@ namespace PilotHeim.Pilot
         private readonly Player player;
         private readonly PilotTuning t;
         public readonly PilotGrapple Grapple;
+        public PilotArsenal Arsenal;
 
         // --- kinematic state (Source units, Unity axes) ---
         public Vector3 Vel;
@@ -134,6 +135,7 @@ namespace PilotHeim.Pilot
                 Sprinting = Override.Sprint && forwardMove > 0.1f && !Crouched;
                 player.m_lookDir = viewFwd;
                 player.m_lookYaw = Quaternion.LookRotation(yawFwd);
+                player.m_lookPitch = -Mathf.Asin(Mathf.Clamp(viewFwd.y, -1f, 1f)) * Mathf.Rad2Deg;
                 player.m_moveDir = yawFwd * forwardMove + viewRight * sideMove;
                 return;
             }
@@ -212,6 +214,7 @@ namespace PilotHeim.Pilot
             vs *= player.GetAttackSpeedFactorMovement();
             player.m_seman.ApplyStatusEffectSpeedMods(ref vs, player.m_moveDir);
             vs *= Mathf.Clamp01(1f + player.GetEquipmentMovementModifier());
+            if (Arsenal != null) vs *= Arsenal.SpeedScale;           // ADS slow-down, stim boost
             return vs;
         }
 

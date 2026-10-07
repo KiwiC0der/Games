@@ -78,12 +78,38 @@ namespace PilotHeim
 
         // Ctrl is slide, not Valheim's sneak toggle, while piloting.
         [HarmonyPrefix, HarmonyPatch(typeof(Player), nameof(Player.SetControls))]
-        private static void SetControls(Player __instance, ref bool crouch, ref bool jump)
+        private static void SetControls(Player __instance, ref bool crouch, ref bool jump, ref bool attack, ref bool attackHold,
+                                        ref bool secondaryAttack, ref bool secondaryAttackHold, ref bool block, ref bool blockHold)
         {
-            if (!PilotActive(__instance, out _)) return;
+            if (!PilotActive(__instance, out var pc)) return;
             crouch = false;
             jump = false;
+            if (pc.Arsenal != null && pc.Arsenal.Drawn)
+            {
+                // the mouse buttons belong to the pilot gun while it is drawn
+                attack = attackHold = secondaryAttack = secondaryAttackHold = block = blockHold = false;
+            }
             if (__instance.m_crouchToggled) __instance.SetCrouch(false);
+        }
+
+        // Cloak: AI cannot sense a cloaked pilot unless point blank.
+        [HarmonyPrefix, HarmonyPatch(typeof(BaseAI), nameof(BaseAI.CanSenseTarget),
+            new[] { typeof(Transform), typeof(Vector3), typeof(float), typeof(float), typeof(float), typeof(bool), typeof(bool), typeof(Character), typeof(bool), typeof(bool) })]
+        private static bool CloakSense(Transform me, Character target, ref bool __result)
+        {
+            var pc = PilotController.Local;
+            if (pc == null || pc.Arsenal == null || !pc.Arsenal.Cloaked || target != pc.Player) return true;
+            if (Vector3.Distance(me.position, target.transform.position) < 2.5f) return true;
+            __result = false;
+            return false;
+        }
+
+        // Self-test diagnostics: who removes the watched object?
+        [HarmonyPrefix, HarmonyPatch(typeof(ZNetView), nameof(ZNetView.ResetZDO))]
+        private static void WatchReset(ZNetView __instance)
+        {
+            if (SelfTest.WatchedObject != null && __instance.gameObject == SelfTest.WatchedObject)
+                Plugin.Log.LogWarning("[selftest] watched object ZDO reset by: " + System.Environment.StackTrace);
         }
 
         // Wallrun camera tilt.
