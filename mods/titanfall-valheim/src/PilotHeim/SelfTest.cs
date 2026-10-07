@@ -94,6 +94,14 @@ namespace PilotHeim
             var player = Player.m_localPlayer;
             var pc = PilotController.Local;
             var m = pc.Motor;
+            {   // rig diagnostics for the pilot body retarget
+                var an = player.m_animator; var av = an != null ? an.avatar : null;
+                Plugin.Log.LogInfo($"[rig] animator {(an != null ? an.name : "none")} avatar {(av != null ? av.name : "none")} human {(av != null && av.isHuman)} valid {(av != null && av.isValid)} controller {(an != null && an.runtimeAnimatorController != null ? an.runtimeAnimatorController.name : "none")}");
+                if (av != null && av.isHuman)
+                    foreach (var hb in av.humanDescription.human) Plugin.Log.LogInfo($"[rig] {hb.humanName} -> {hb.boneName}");
+                foreach (var smr in player.m_visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                    Plugin.Log.LogInfo($"[rig] smr {smr.name} bones {smr.bones.Length} root {(smr.rootBone != null ? smr.rootBone.name : "-")} active {smr.gameObject.activeInHierarchy}");
+            }
             player.SetGodMode(true);
             var input = new PilotMotor.InputState();
             m.Override = input;
@@ -237,6 +245,9 @@ namespace PilotHeim
 
             // --- T10.. pilot weapons against a real Valheim creature
             yield return Guard(WeaponTests(player, m, pc.Arsenal, input, spawnPos), "weapons");
+
+            // --- T19 Titanfall pilot body
+            yield return Guard(BodyTests(player, m, pc, input, origin + new Vector3(-20f, 0f, -20f)), "body");
 
             // --- T20.. Titan
             yield return Guard(TitanTests(player, m, pc, input, spawnPos), "titan");
@@ -407,6 +418,82 @@ namespace PilotHeim
             a.OnHit = null;
             a.Drawn = false;
             if (trollGo != null) Destroy(trollGo);
+        }
+
+        private IEnumerator BodyTests(Player player, PilotMotor m, PilotController pc, PilotMotor.InputState input, Vector3 ground)
+        {
+            bool assets = System.IO.File.Exists(System.IO.Path.Combine(PilotHeim.Assets.AssetLibrary.Dir ?? "", "jack.phm2"));
+            if (!assets) { Line("   pilot body: no exported model, Valheim body kept"); yield break; }
+            var body = pc.Body;
+            Check("Titanfall pilot body built", body != null && body.Ready ? 1f : 0f, 1f, 0f);
+            if (body == null || !body.Ready) yield break;
+            yield return Teleport(player, ground + Vector3.up * 0.3f);       // flat sky arena: clear camera view
+            yield return Settle(player, input);
+            int shown = 0;
+            foreach (var r in player.m_visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                if (r.enabled && !r.transform.IsChildOf(body.Root)) shown++;
+            Check("Valheim body meshes hidden", shown, 0f, 0f);
+
+            // retarget accuracy: Jack's wrists follow Valheim's (still animated) hands, standing and running
+            Transform Find(Transform root, string n) { foreach (var t in root.GetComponentsInChildren<Transform>(true)) if (t.name == n) return t; return null; }
+            var vHand = player.m_animator.GetBoneTransform(HumanBodyBones.RightHand);
+            var jHand = Find(body.Root, "def_r_wrist");
+            var vHead = player.m_animator.GetBoneTransform(HumanBodyBones.Head);
+            var jHead = Find(body.Root, "def_c_head");
+            float worst = 0f;
+            input.Forward = 0f; input.Sprint = false;
+            yield return null;
+            foreach (var hb in new[] { HumanBodyBones.Hips, HumanBodyBones.Head, HumanBodyBones.LeftHand, HumanBodyBones.RightHand, HumanBodyBones.LeftFoot, HumanBodyBones.RightFoot, HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm })
+            {
+                var vt = player.m_animator.GetBoneTransform(hb);
+                string jn = hb == HumanBodyBones.Hips ? "def_c_hip" : hb == HumanBodyBones.Head ? "def_c_head" : hb == HumanBodyBones.LeftHand ? "def_l_wrist" : hb == HumanBodyBones.RightHand ? "def_r_wrist"
+                          : hb == HumanBodyBones.LeftFoot ? "def_l_ankle" : hb == HumanBodyBones.RightFoot ? "def_r_ankle" : hb == HumanBodyBones.RightUpperArm ? "def_r_shoulder" : "def_r_elbow";
+                var jt = Find(body.Root, jn);
+                Line($"   rig {hb,-14} valheim {player.transform.InverseTransformPoint(vt.position)}  pilot {player.transform.InverseTransformPoint(jt.position)}");
+            }
+            for (float t0 = 0; t0 < 1f; t0 += Time.deltaTime) { yield return new WaitForEndOfFrame(); worst = Mathf.Max(worst, Vector3.Distance(vHand.position, jHand.position)); }
+            Line($"   retarget standing: hand gap {worst:0.000} m, head gap {Vector3.Distance(vHead.position, jHead.position):0.000} m");
+            Check("pilot hand follows Valheim hand (m)", worst < 0.25f ? 1f : 0f, 1f, 0f);
+            {
+                var an = player.m_animator;
+                var st = an.GetCurrentAnimatorStateInfo(0);
+                var clips = an.GetCurrentAnimatorClipInfo(0);
+                Line($"   animator enabled {an.enabled} speed {an.speed} cull {an.cullingMode} update {an.updateMode} state {st.shortNameHash} t {st.normalizedTime:0.00} clip {(clips.Length > 0 ? clips[0].clip.name : "none")} layers {an.layerCount}");
+            }
+            input.Forward = 1f; input.Sprint = true;
+            worst = 0f;
+            Vector3 hMin = Vector3.one * 99f, hMax = -Vector3.one * 99f;
+            for (float t0 = 0; t0 < 1.5f; t0 += Time.deltaTime)
+            {
+                var lp = player.transform.InverseTransformPoint(vHand.position); hMin = Vector3.Min(hMin, lp); hMax = Vector3.Max(hMax, lp);
+                yield return new WaitForEndOfFrame();          // after the pilot body's LateUpdate
+                worst = Mathf.Max(worst, Vector3.Distance(vHand.position, jHand.position));
+            }
+            {
+                var an = player.m_animator; var clips = an.GetCurrentAnimatorClipInfo(0);
+                Line($"   running: valheim hand range {hMax - hMin}, clip {(clips.Length > 0 ? clips[0].clip.name : "none")}, speed {m.Vel.magnitude:0} u/s");
+            }
+            input.Forward = 0f; input.Sprint = false;
+            Line($"   retarget running: hand gap {worst:0.000} m");
+            Check("pilot hand follows Valheim hand while running", worst < 0.3f ? 1f : 0f, 1f, 0f);
+            Check("Valheim animation drives the pilot (hand moves while running)", (hMax - hMin).magnitude > 0.1f ? 1f : 0f, 1f, 0f);
+            yield return Settle(player, input);
+
+            // front view screenshot: borrow the camera for one frame
+            var cam = GameCamera.instance;
+            var camT = cam.transform;
+            cam.enabled = false;
+            Vector3 head = player.transform.position + Vector3.up * 1.1f;
+            camT.position = head + player.transform.forward * 3.2f + player.transform.right * 1.2f + Vector3.up * 0.2f;
+            camT.rotation = Quaternion.LookRotation(head - camT.position);
+            if (EnvMan.instance != null) { EnvMan.instance.m_debugTimeOfDay = true; EnvMan.instance.m_debugTime = 0.5f; }   // midday light
+            yield return new WaitForSeconds(0.8f);                                          // let motion blur settle
+            yield return new WaitForEndOfFrame();
+            string shot = System.IO.Path.Combine(Paths.BepInExRootPath, "PilotHeim_pilot.png");
+            ScreenCapture.CaptureScreenshot(shot);
+            yield return new WaitForSeconds(0.4f);
+            cam.enabled = true;
+            Line($"   screenshot: {shot}");
         }
 
         private IEnumerator TitanTests(Player player, PilotMotor m, PilotController pc, PilotMotor.InputState input, Vector3 ground)

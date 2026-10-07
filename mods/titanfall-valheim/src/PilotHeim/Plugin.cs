@@ -35,6 +35,7 @@ namespace PilotHeim
         public static ConfigEntry<KeyCode> KeyEmbark;
         public static ConfigEntry<KeyCode> KeyToggleMod;
         public static ConfigEntry<bool> SelfTest;
+        public static ConfigEntry<bool> PilotBodyEnabled;
         public static ConfigEntry<string> Loadout;
         public static ConfigEntry<PilotHeim.Pilot.PilotArsenal.TacticalKind> TacticalAbility;
         public static ConfigEntry<bool> CampaignWeaponProfile;
@@ -78,6 +79,7 @@ namespace PilotHeim
             TitanClass = Config.Bind("Titan", "Class", "titan_buddy", "Titan 2 player settings class for your Titan (titan_buddy = BT-7274).");
             TitanBuildTimeScale = Config.Bind("Titan", "BuildTimeScale", 1f, "Multiplier on titan_build_time (1 = Titanfall's 180 s).");
             TitanCoreChargeSeconds = Config.Bind("Titan", "CoreChargeSeconds", 90f, "Seconds for the Titan core meter to fill.");
+            PilotBodyEnabled = Config.Bind("Visuals", "TitanfallPilotBody", true, "Show the Titanfall pilot (exported from your install) instead of the Valheim body; Valheim animations still drive it.");
             SelfTest = Config.Bind("Debug", "SelfTest", false, "Load a test world, run scripted movement checks and quit, writing results next to the log.");
 
             try

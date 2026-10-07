@@ -38,6 +38,11 @@ namespace PilotHeim.Pilot
             Local = this;
         }
 
+        public PilotBody Body { get; private set; }
+
+        // the Titanfall pilot body needs Valheim's animator and ZNetScene (for the shader), ready by Start
+        private void Start() => Body = PilotBody.Attach(Player);
+
         private void OnDestroy()
         {
             Motor?.Grapple.Destroy();

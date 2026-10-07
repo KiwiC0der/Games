@@ -14,7 +14,7 @@ namespace PilotHeim.Assets
     public static class AssetLibrary
     {
         public static string Dir;
-        public static PhModel Titan;
+        public static PhModel Titan, Pilot;
         public static Dictionary<string, PhClip> TitanClips;
         public static string Status = "not started";
         public static bool Ready { get; private set; }
@@ -35,7 +35,9 @@ namespace PilotHeim.Assets
                     string bt = Path.Combine(Dir, "bt.phm2"), bta = Path.Combine(Dir, "bt.pha");
                     if (File.Exists(bt)) Titan = PhModel.Load(bt);
                     if (File.Exists(bta)) TitanClips = PhClip.LoadAll(bta);
-                    Status = $"Titanfall assets ready: BT {(Titan != null ? "model" : "-")}, {TitanClips?.Count ?? 0} clips ({sw.ElapsedMilliseconds} ms)";
+                    string jack = Path.Combine(Dir, "jack.phm2");
+                    if (File.Exists(jack)) Pilot = PhModel.Load(jack);
+                    Status = $"Titanfall assets ready: BT {(Titan != null ? "model" : "-")}, {TitanClips?.Count ?? 0} clips, pilot {(Pilot != null ? "model" : "-")} ({sw.ElapsedMilliseconds} ms)";
                     Ready = true;
                 }
                 catch (Exception e) { Status = "asset load failed: " + e.Message; }

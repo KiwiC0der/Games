@@ -166,11 +166,19 @@ def export_bt(model_path, anim_paths, outdir):
           sum(len(s["tris"]) for s in subs.values()), "tris,", len(subs), "materials")
 
 
-def export_mesh(model_path, outdir, name, choose):
+MAYA_TO_SOURCE = (0.5, 0.5, 0.5, 0.5)       # root rotation every Titanfall @ref applies (Y-up -> Z-up)
+
+
+def export_mesh(model_path, outdir, name, choose, yup_root=False):
     m = mdl53.read_mdl(model_path)
     subs, _ = mdl53.build(m, choose)
+    rest = None
+    if yup_root:
+        # character models are authored Y-up; their animations rotate the root into Source Z-up
+        rest = [(b["pos"], b["quat"]) for b in m["bones"]]
+        rest[0] = (rest[0][0], MAYA_TO_SOURCE)
     os.makedirs(outdir, exist_ok=True)
-    write_mesh(m, subs, os.path.join(outdir, name + ".phm2"))
+    write_mesh(m, subs, os.path.join(outdir, name + ".phm2"), rest)
     print(name, ":", len(m["bones"]), "bones,", sum(len(s["verts"]) for s in subs.values()), "verts")
 
 
@@ -179,6 +187,6 @@ if __name__ == "__main__":
         export_bt(sys.argv[2], sys.argv[3].split(","), sys.argv[4])
     elif sys.argv[1] == "mesh":
         ch = {}
-        for kv in (sys.argv[5].split(",") if len(sys.argv) > 5 else []):
+        for kv in (sys.argv[5].split(",") if len(sys.argv) > 5 and "=" in sys.argv[5] else []):
             k, v = kv.split("="); ch[k] = int(v)
-        export_mesh(sys.argv[2], sys.argv[3], sys.argv[4], ch)
+        export_mesh(sys.argv[2], sys.argv[3], sys.argv[4], ch, yup_root="--yup" in sys.argv)
