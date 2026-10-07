@@ -21,6 +21,17 @@ generated from their own `server.dll`.
   **17/18 pass**. Open issue: grapple ray hits the floor ~2.7 m ahead in the test (hook at feet
   height), so no pull — aim/ray filtering to fix next.
 
+## 2026-10-07 � grapple fixed (phases 1-2 complete)
+- Root causes: (1) Titanfall moves the player with the *mid-step* velocity (between the two
+  gravity halves); handing PhysX the end-of-step velocity under-shot the jump apex by exactly
+  sum(288-12k)*0.02 = 72.0 u. Fixed: apex now 75.0 u, matching Titanfall's discrete value.
+  (2) Sliding is a crouched stance, so the protected wish speed is crouch speed (80).
+  (3) Attaching the grapple clears the ground entity; friction no longer cancels the pull.
+  (4) Self-test: Valheim tree prefabs snap to terrain, so the arena grapple now targets a pillar
+  and a second test grapples a real world tree with a clear line of sight.
+- Self-test: **20/20 pass, zero errors.** Real tree: hooked at 14.7 m, pulled to 2.6 m, peak
+  675 u/s (ramp target 800).
+
 ## Remaining
 Grapple aim fix · weapons & tacticals (phase 3) · Titan call-in/embark (phase 4) ·
 models/animations/sounds via Legion+ / runtime loader (phase 5).

@@ -59,7 +59,11 @@ namespace PilotHeim
             var input = new PilotMotor.InputState();
             m.Override = input;
 
-            Vector3 origin = BuildArena(player.transform.position + new Vector3(0f, 250f, 0f));
+            // anchor on the real terrain under the spawn (the test character may have logged out in the sky)
+            Vector3 spawnPos = player.transform.position;
+            spawnPos.y = ZoneSystem.instance.GetGroundHeight(spawnPos);
+            yield return Teleport(player, spawnPos + Vector3.up * 0.5f);
+            Vector3 origin = BuildArena(spawnPos + new Vector3(0f, 250f, 0f));
             yield return Teleport(player, origin + new Vector3(0f, 0.2f, -20f));
 
             // --- T1 walk speed
@@ -146,7 +150,10 @@ namespace PilotHeim
             yield return Teleport(player, origin + new Vector3(-12f, 0.2f, 0f));
             yield return Settle(player, input);
             var tree = GameObject.Find("PilotHeim_TestTree");
-            Vector3 aimAt = tree != null ? tree.transform.position + Vector3.up * 6f : origin + new Vector3(-12f, 6f, 15f);
+            Line($"   test tree: {(tree != null ? tree.transform.position.ToString() : "none")} (arena floor y={origin.y:0.0})");
+            bool treeOnArena = tree != null && Mathf.Abs(tree.transform.position.y - origin.y) < 1f;
+            Vector3 aimAt = treeOnArena ? tree.transform.position + Vector3.up * 6f : origin + new Vector3(-12f, 6f, 15f);
+            Line($"   grapple target: {(treeOnArena ? "Beech1 tree" : "arena pillar")}");
             Vector3 eye = player.transform.position + Vector3.up * 1.6f;
             input.Look = (aimAt - eye).normalized;
             yield return new WaitForFixedUpdate();
@@ -165,11 +172,14 @@ namespace PilotHeim
                 yield return new WaitForFixedUpdate();
             }
             float d1 = Vector3.Distance(player.transform.position, aimAt);
-            Check("grapple attached to tree", attached ? 1f : 0f, 1f, 0f);
-            Check("grapple pulled toward tree", d1 < d0 - 2f ? 1f : 0f, 1f, 0f);
+            Check("grapple attached", attached ? 1f : 0f, 1f, 0f);
+            Check("grapple pulled toward target", d1 < d0 - 2f ? 1f : 0f, 1f, 0f);
             Check("grapple speed <= ramp max (u/s)", maxAlong <= t.GrappleSpeedRampMax * 1.15f + t.Gravity * 0.2f ? 1f : 0f, 1f, 0f);
             Check("grapple used power", powerBefore - m.Grapple.Power > 1f ? 1f : 0f, 1f, 0f);
             Line($"   grapple: start dist {d0:0.0} m -> {d1:0.0} m, peak speed {maxAlong:0} u/s, power {powerBefore:0} -> {m.Grapple.Power:0}");
+
+            // --- T7b grapple a real world tree on real terrain
+            yield return GrappleRealTree(player, m, input, spawnPos);
 
             // --- T8 no fall damage
             float hp = player.GetHealth();
@@ -223,13 +233,57 @@ namespace PilotHeim
             Box("PilotHeim_Floor", c + new Vector3(0f, -0.5f, 0f), new Vector3(80f, 1f, 80f));
             Box("PilotHeim_Wall", c + new Vector3(6.5f, 6f, 0f), new Vector3(1f, 12f, 60f));
             Box("PilotHeim_Pillar", c + new Vector3(-12f, 10f, 15f), new Vector3(1.2f, 20f, 1.2f));
-            var prefab = ZNetScene.instance != null ? ZNetScene.instance.GetPrefab("Beech1") : null;
-            if (prefab != null)
-            {
-                var tree = Instantiate(prefab, c + new Vector3(-12f, 0f, 15f), Quaternion.identity);
-                tree.name = "PilotHeim_TestTree";
-            }
             return c;
+        }
+
+        private IEnumerator GrappleRealTree(Player player, PilotMotor m, PilotMotor.InputState input, Vector3 near)
+        {
+            var trees = new List<TreeBase>();
+            foreach (var tb in FindObjectsByType<TreeBase>(FindObjectsSortMode.None))
+            {
+                Vector3 dd = tb.transform.position - near; dd.y = 0f;
+                if (dd.magnitude < 150f && Physics.Raycast(tb.transform.position + Vector3.up * 2f, Vector3.down, 6f, Character.s_groundRayMask)) trees.Add(tb);
+            }
+            trees.Sort((x, y) => Vector3.Distance(x.transform.position, near).CompareTo(Vector3.Distance(y.transform.position, near)));
+            Line($"   grounded trees within 150 m: {trees.Count}");
+            int tried = 0;
+            foreach (var tb in trees)
+            {
+                if (tried++ >= 5) break;
+                Vector3 trunk = tb.transform.position;
+                Vector3 away = Vector3.ProjectOnPlane(near - trunk, Vector3.up);
+                if (away.sqrMagnitude < 0.01f) away = Vector3.back;
+                Vector3 stand = trunk + away.normalized * 15f;
+                stand.y = ZoneSystem.instance.GetGroundHeight(stand);
+                yield return Teleport(player, stand + Vector3.up * 0.3f);
+                yield return Settle(player, input);
+                Vector3 eye = player.transform.position + Vector3.up * 1.6f;
+                Vector3 aim = trunk + Vector3.up * 4f;
+                Vector3 dir = (aim - eye).normalized;
+                if (!Physics.Raycast(eye, dir, out var los, 40f, Character.s_groundRayMask | Character.s_characterLayerMask, QueryTriggerInteraction.Ignore)
+                    || los.collider.GetComponentInParent<TreeBase>() != tb)
+                {
+                    Line($"   tree {tried}: no clear line of sight ({(los.collider != null ? los.collider.name : "nothing")}), next");
+                    continue;
+                }
+                input.Look = dir;
+                yield return new WaitForFixedUpdate();
+                Vector3 hook = los.point;
+                float d0 = Vector3.Distance(player.transform.position, hook);
+                m.Grapple.Fire(eye, dir);
+                bool attached = false; float minD = d0, peak = 0f;
+                for (float tt = 0; tt < 4f; tt += Time.fixedDeltaTime)
+                {
+                    if (m.Grapple.Attached) { attached = true; peak = Mathf.Max(peak, m.Vel.magnitude); }
+                    minD = Mathf.Min(minD, Vector3.Distance(player.transform.position, hook));
+                    yield return new WaitForFixedUpdate();
+                }
+                Line($"   real tree '{tb.name}' at {trunk}: hook {los.point}, dist {d0:0.0} -> closest {minD:0.0} m, peak {peak:0} u/s, last={m.LastEvent}");
+                Check("grapple attached to real tree", attached ? 1f : 0f, 1f, 0f);
+                Check("grapple pulled to real tree", minD < d0 * 0.4f ? 1f : 0f, 1f, 0f);
+                yield break;
+            }
+            Fail("real-tree grapple", "no tree with a clear shot");
         }
 
         // ----------------------------------------------------------------- helpers
