@@ -1,0 +1,2180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Terraheim — The Game Library</title>
+<meta name="description" content="A 2D building platformer that runs Terraria's player physics and Valheim's structural integrity, ported from the games' decompiled code and verified frame by frame.">
+<meta name="theme-color" content="#0b1026">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+@font-face { font-family: 'Fredoka'; font-weight: 600; font-display: swap; src: url('/fonts/Fredoka-600.woff2') format('woff2'); }
+@font-face { font-family: 'Fredoka'; font-weight: 700; font-display: swap; src: url('/fonts/Fredoka-700.woff2') format('woff2'); }
+@font-face { font-family: 'Space Mono'; font-weight: 400; font-display: swap; src: url('/fonts/SpaceMono-400.woff2') format('woff2'); }
+@font-face { font-family: 'Space Mono'; font-weight: 700; font-display: swap; src: url('/fonts/SpaceMono-700.woff2') format('woff2'); }
+
+:root {
+  --ink: #0b1026;
+  --night: #131a36;
+  --panel: rgba(11, 16, 38, 0.86);
+  --panel-solid: #121935;
+  --line: rgba(190, 210, 255, 0.18);
+  --text: #eef2ff;
+  --muted: #a9b4d6;
+  --aurora: #5cf2b0;
+  --frost: #9cc9ff;
+  --ember: #ffb36b;
+  --blood: #ff5d6c;
+  --wood: #c08a50;
+  --corewood: #8a5636;
+  --stone: #a3acbf;
+  --iron: #7f8fa3;
+  --display: 'Fredoka', ui-rounded, system-ui, sans-serif;
+  --mono: 'Space Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --r: 14px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--ink); color: var(--text); overflow: hidden; overscroll-behavior: none; }
+body { font-family: var(--mono); font-size: 14px; -webkit-font-smoothing: antialiased; touch-action: none; user-select: none; -webkit-user-select: none; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--aurora); outline-offset: 3px; }
+
+#view { position: fixed; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; cursor: crosshair; display: block; }
+.vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(120% 90% at 50% 45%, transparent 55%, rgba(4, 6, 18, 0.55) 100%); }
+.flash { position: fixed; inset: 0; pointer-events: none; background: rgba(255, 60, 80, 0.32); opacity: 0; transition: opacity 0.35s ease-out; }
+.flash.on { opacity: 1; transition: none; }
+
+/* ---------- HUD ---------- */
+.hud { position: fixed; inset: 0; pointer-events: none; padding: max(14px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); display: none; }
+.hud.on { display: block; }
+.hud > * { pointer-events: auto; }
+.hud-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.level-chip { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 14px; max-width: min(460px, 60vw); backdrop-filter: blur(6px); }
+.level-chip .eyebrow { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--aurora); }
+.level-chip h2 { margin: 2px 0 4px; font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: 0.01em; }
+.level-chip p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.top-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.hearts { display: flex; gap: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; }
+.heart { width: 18px; height: 16px; image-rendering: pixelated; }
+.tools { display: flex; gap: 6px; }
+.icon-btn { width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; cursor: pointer; font-size: 15px; font-weight: 700; }
+.icon-btn[aria-pressed="true"] { background: rgba(92, 242, 176, 0.18); border-color: rgba(92, 242, 176, 0.55); color: var(--aurora); }
+.icon-btn:hover { border-color: rgba(190, 210, 255, 0.45); }
+
+.hotbar { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; gap: 10px; align-items: stretch; }
+.slots { display: flex; gap: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 6px; backdrop-filter: blur(6px); }
+.slot { position: relative; width: 62px; height: 58px; border-radius: 10px; border: 2px solid transparent; background: rgba(255, 255, 255, 0.04); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; }
+.slot[aria-pressed="true"] { border-color: var(--aurora); background: rgba(92, 242, 176, 0.12); }
+.slot:disabled { opacity: 0.32; cursor: not-allowed; }
+.slot .key { position: absolute; top: 3px; left: 6px; font-size: 10px; color: var(--muted); }
+.slot .count { position: absolute; top: 3px; right: 6px; font-size: 11px; font-weight: 700; }
+.slot .label { font-size: 10px; color: var(--muted); margin-top: 8px; }
+.swatch { width: 26px; height: 14px; border-radius: 3px; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.2); }
+.shape-icon { display: block; background: var(--text); opacity: 0.85; border-radius: 2px; }
+
+.legend { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: max(14px, env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; font-size: 11px; color: var(--muted); display: none; width: 210px; }
+.legend.on { display: block; }
+.legend strong { color: var(--text); font-weight: 700; display: block; margin-bottom: 6px; letter-spacing: 0.06em; }
+.legend .bar { height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgb(255,0,0), rgb(230,210,40) 50%, rgb(70,225,110)); margin: 6px 0 4px; }
+.legend .row { display: flex; justify-content: space-between; }
+.legend .max { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.legend .max i { width: 14px; height: 10px; border-radius: 3px; background: rgb(153, 204, 255); display: inline-block; }
+
+.tip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; display: none; }
+.cursor-note { position: fixed; pointer-events: none; font-size: 11px; background: rgba(11, 16, 38, 0.9); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; color: var(--text); transform: translate(14px, 14px); white-space: nowrap; display: none; }
+.cursor-note.bad { color: #ffb0b8; border-color: rgba(255, 93, 108, 0.5); }
+
+.toast { position: fixed; left: 50%; top: 18%; transform: translate(-50%, 0); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; line-height: 1.5; width: max-content; padding: 9px 16px; font-size: 13px; opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: none; max-width: 90vw; text-align: center; }
+.toast.on { opacity: 1; transform: translate(-50%, -6px); }
+
+/* ---------- touch controls ---------- */
+.touch { display: none; }
+@media (pointer: coarse) {
+  .touch.on { display: block; }
+  .hotbar { bottom: calc(max(14px, env(safe-area-inset-bottom)) + 4px); }
+}
+.pad { position: fixed; bottom: calc(max(14px, env(safe-area-inset-bottom)) + 78px); display: flex; gap: 10px; pointer-events: auto; }
+.pad.left { left: max(14px, env(safe-area-inset-left)); }
+.pad.right { right: max(14px, env(safe-area-inset-right)); }
+.pad button { width: 58px; height: 58px; border-radius: 18px; border: 1px solid var(--line); background: rgba(11, 16, 38, 0.6); font-size: 22px; font-weight: 700; touch-action: none; }
+.pad button.held { background: rgba(92, 242, 176, 0.25); border-color: var(--aurora); }
+.pad button[aria-pressed="true"] { background: rgba(255, 93, 108, 0.25); border-color: var(--blood); }
+
+/* ---------- screens ---------- */
+.screen { position: fixed; inset: 0; display: none; overflow-y: auto; padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); background: radial-gradient(140% 100% at 50% 0%, rgba(19, 26, 54, 0.55), rgba(11, 16, 38, 0.92) 70%); touch-action: pan-y; }
+.screen.on { display: block; }
+.wrap { max-width: 1040px; margin: 0 auto; }
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: clamp(18px, 5vh, 48px); }
+.back { color: var(--muted); text-decoration: none; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; }
+.back:hover { color: var(--text); border-color: rgba(190, 210, 255, 0.45); }
+.title { font-family: var(--display); font-weight: 700; font-size: clamp(3rem, 11vw, 7.5rem); line-height: 0.86; letter-spacing: -0.02em; margin: 0; background: linear-gradient(180deg, #ffffff 10%, #bfe3ff 55%, #5cf2b0 120%); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 6px 30px rgba(92, 242, 176, 0.18)); }
+.tagline { font-size: clamp(14px, 1.6vw, 17px); color: var(--muted); max-width: 40em; line-height: 1.7; margin: 18px 0 0; }
+.tagline b { color: var(--text); font-weight: 700; }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.badge { font-size: 11px; letter-spacing: 0.06em; border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; color: var(--muted); }
+.badge b { color: var(--aurora); font-weight: 700; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: clamp(22px, 5vh, 40px); }
+.card { text-align: left; background: rgba(255, 255, 255, 0.035); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; cursor: pointer; transition: transform 0.18s, border-color 0.18s, background 0.18s; min-height: 150px; display: flex; flex-direction: column; gap: 8px; }
+.card:hover { transform: translateY(-2px); border-color: rgba(92, 242, 176, 0.5); background: rgba(92, 242, 176, 0.06); }
+.card .num { font-size: 11px; color: var(--aurora); letter-spacing: 0.12em; }
+.card h3 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 21px; }
+.card p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.55; flex: 1; }
+.card .mats { display: flex; gap: 5px; align-items: center; }
+.card .done { font-size: 11px; color: var(--aurora); }
+.row-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+.btn { border: 1px solid var(--line); background: rgba(255, 255, 255, 0.06); border-radius: 999px; padding: 11px 18px; cursor: pointer; font-weight: 700; letter-spacing: 0.04em; }
+.btn.primary { background: var(--aurora); color: var(--ink); border-color: var(--aurora); }
+.btn:hover { filter: brightness(1.08); }
+.controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px 18px; margin-top: 28px; font-size: 12px; color: var(--muted); }
+.controls kbd { font-family: var(--mono); font-size: 11px; color: var(--text); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; margin-right: 6px; }
+
+.about h2 { font-family: var(--display); font-size: clamp(1.6rem, 4vw, 2.4rem); margin: 0 0 8px; }
+.about h3 { font-family: var(--display); font-size: 20px; margin: 26px 0 8px; color: var(--frost); }
+.about p, .about li { color: var(--muted); line-height: 1.7; font-size: 13px; }
+.about b, .about code { color: var(--text); }
+.about code { font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; }
+.about table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 8px 0; }
+.about th, .about td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+.about th { color: var(--text); font-weight: 700; }
+.about td { color: var(--muted); }
+.table-scroll { overflow-x: auto; }
+
+.dialog { position: fixed; inset: 0; display: none; place-items: center; background: rgba(4, 6, 18, 0.62); padding: 16px; }
+.dialog.on { display: grid; }
+.dialog .box { background: var(--panel-solid); border: 1px solid var(--line); border-radius: 18px; padding: 26px; width: min(440px, 100%); text-align: center; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); }
+.dialog h2 { font-family: var(--display); font-size: 34px; margin: 0 0 6px; }
+.dialog p { color: var(--muted); margin: 0 0 6px; line-height: 1.6; }
+.dialog .stats { display: flex; justify-content: center; gap: 22px; margin: 16px 0 6px; }
+.dialog .stats div { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.dialog .stats b { display: block; font-size: 22px; color: var(--text); letter-spacing: 0; font-family: var(--display); }
+.dialog .row-actions { justify-content: center; }
+
+.loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--ink); font-size: 12px; letter-spacing: 0.2em; color: var(--muted); text-transform: uppercase; z-index: 10; transition: opacity 0.4s; }
+.loading.done { opacity: 0; pointer-events: none; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+
+@media (max-width: 700px) {
+  .level-chip p { display: none; }
+  .slot { width: 46px; height: 46px; }
+  .slot .label { display: none; }
+  .slot:disabled { display: none; }          /* only this level's materials */
+  .hotbar { gap: 6px; }
+  .slots { padding: 4px; gap: 4px; }
+  .legend { display: none !important; }
+}
+@media (max-width: 520px) {
+  .hud-top { flex-wrap: wrap; }
+  .level-chip { flex: 1 1 100%; max-width: none; padding: 8px 12px; }
+  .level-chip h2 { font-size: 16px; margin: 0; }
+  .top-right { flex-direction: row; width: 100%; justify-content: space-between; align-items: center; }
+  .icon-btn { width: 36px; height: 36px; }
+  .heart { width: 14px; height: 12px; }
+  .hearts { padding: 6px 9px; }
+  .toast { top: 26%; }
+}
+@media (min-width: 1800px) and (min-height: 1000px) {
+  .hud, .toast, .cursor-note, .dialog .box { zoom: 1.35; }
+}
+@media (max-height: 520px) {
+  .level-chip p { display: none; }
+  .title { font-size: clamp(2.4rem, 9vw, 4rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .toast, .flash { transition: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="Terraheim game view" role="img"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+<div class="flash" id="flash" aria-hidden="true"></div>
+<div class="loading" id="loading" aria-live="polite">Raising the world…</div>
+
+<!-- HUD -->
+<div class="hud" id="hud">
+  <div class="hud-top">
+    <div class="level-chip">
+      <div class="eyebrow" id="hud-eyebrow">Level 1</div>
+      <h2 id="hud-name">The First Span</h2>
+      <p id="hud-brief"></p>
+    </div>
+    <div class="top-right">
+      <div class="hearts" id="hearts" role="img" aria-label="Life 100 of 100"></div>
+      <div class="tools">
+        <button class="icon-btn" id="btn-support" aria-pressed="false" title="Support view (Tab)" aria-label="Toggle support view">◫</button>
+        <button class="icon-btn" id="btn-sound" aria-pressed="true" title="Sound (M)" aria-label="Toggle sound">♪</button>
+        <button class="icon-btn" id="btn-restart" title="Restart level (R)" aria-label="Restart level">↻</button>
+        <button class="icon-btn" id="btn-menu" title="Menu (Esc)" aria-label="Open menu">☰</button>
+      </div>
+    </div>
+  </div>
+  <div class="legend" id="legend" aria-hidden="true">
+    <strong>STRUCTURAL SUPPORT</strong>
+    <div class="max"><i></i> full support (touching ground)</div>
+    <div class="bar"></div>
+    <div class="row"><span>failing</span><span>strong</span></div>
+  </div>
+  <div class="hotbar">
+    <div class="slots" id="mat-slots" role="group" aria-label="Materials"></div>
+    <div class="slots" id="shape-slots" role="group" aria-label="Shapes"></div>
+  </div>
+</div>
+<div class="cursor-note" id="cursor-note" aria-hidden="true"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<div class="touch" id="touch" aria-hidden="true">
+  <div class="pad left"><button data-hold="left">◀</button><button data-hold="right">▶</button></div>
+  <div class="pad right"><button id="touch-remove" aria-pressed="false" title="Remove mode">✕</button><button data-hold="jump">▲</button></div>
+</div>
+
+<!-- Title / level select -->
+<section class="screen on" id="screen-menu" aria-labelledby="game-title">
+  <div class="wrap">
+    <div class="brand">
+      <a class="back" href="/">← The Game Library</a>
+      <button class="btn" id="btn-about">How it was made</button>
+    </div>
+    <h1 class="title" id="game-title">TERRAHEIM</h1>
+    <p class="tagline"><b>Terraria's feet. Valheim's bones.</b> You move with Terraria's exact player physics and build with Valheim's exact structural integrity, both ported from the games' decompiled code and checked against the originals frame by frame.</p>
+    <div class="badges">
+      <span class="badge">Terraria <b>1.4.5.6</b> movement</span>
+      <span class="badge">Valheim <b>WearNTear</b> support</span>
+      <span class="badge"><b>286,017</b> frames verified bit-exact</span>
+    </div>
+    <div class="grid" id="level-grid"></div>
+    <div class="controls" aria-label="Controls">
+      <div><kbd>A</kbd><kbd>D</kbd> move</div>
+      <div><kbd>Space</kbd> jump (hold for height)</div>
+      <div><kbd>Click</kbd> place · <kbd>Right-click</kbd> remove</div>
+      <div><kbd>1</kbd>–<kbd>4</kbd> material · <kbd>Q</kbd><kbd>E</kbd> shape</div>
+      <div><kbd>Tab</kbd> support view · <kbd>R</kbd> restart</div>
+      <div><kbd>S</kbd> hold to stop auto-stepping</div>
+    </div>
+  </div>
+</section>
+
+<!-- How it was made -->
+<section class="screen about" id="screen-about" aria-labelledby="about-title">
+  <div class="wrap">
+    <div class="brand">
+      <button class="back" id="about-back">← Back</button>
+    </div>
+    <h2 id="about-title">How it was made</h2>
+    <p>Terraheim is a mechanics port, the safest of the three AI modding approaches: no original code, art or sound ships here, only the <b>rules and numbers</b>, read out of the games and re-expressed in JavaScript. Both games were decompiled locally with ILSpy from copies we own. Terraria is a .NET/XNA executable and Valheim's logic lives in a Unity Mono assembly, so both decompile to readable C#.</p>
+
+    <h3>Terraria — the player</h3>
+    <p>The vanilla path of <code>Player.Update</code> for an unequipped player on dry ground, in Terraria's exact order: stat reset, fall damage, <code>HorizontalMovement</code>, <code>JumpMovement</code>, gravity, step smoothing, <code>StepDown</code> / <code>StepUp</code>, <code>DryCollision</code> → <code>Collision.TileCollision</code>, <code>SlopingCollision</code>, <code>BordersMovement</code>. It runs at 60 ticks a second in 32-bit floats, like the original.</p>
+    <div class="table-scroll"><table>
+      <tr><th>Rule</th><th>Value (px / tick)</th></tr>
+      <tr><td>Run acceleration · top speed</td><td>0.08 · 3</td></tr>
+      <tr><td>Friction on ground · in air</td><td>0.2 · 0.1</td></tr>
+      <tr><td>Jump speed, held for</td><td>5.01, up to 15 ticks</td></tr>
+      <tr><td>Gravity · terminal velocity</td><td>0.4 · 10.01 (10 + 0.01 every tick)</td></tr>
+      <tr><td>Auto step-up</td><td>one tile, ≤ 16.1 px</td></tr>
+      <tr><td>Fall damage</td><td>(tiles fallen − 25) × 10</td></tr>
+    </table></div>
+
+    <h3>Valheim — the structure</h3>
+    <p><code>WearNTear.UpdateSupport</code>: each piece takes the best support it can get from the pieces it touches. A neighbour <i>d</i> metres away passes on <code>support × (1 − loss × (d + 0.1))</code>, with the loss blended between horizontal and vertical by the angle to the contact point. Two contacts on opposite sides (≥ 100° apart) average their support, which is why a bridge held at both ends outlasts a cantilever. Anything touching the ground has full support. Below its minimum a piece takes 100% of its health as damage on the next wear tick. <code>WearNTearUpdater</code> visits every piece about once a second, so collapses ripple outward in one-second waves.</p>
+    <div class="table-scroll"><table>
+      <tr><th>Material</th><th>Max support</th><th>Min support</th><th>Horizontal loss</th><th>Vertical loss</th></tr>
+      <tr><td>Wood</td><td>100</td><td>10</td><td>0.2 / m</td><td>0.125 / m</td></tr>
+      <tr><td>Core wood</td><td>140</td><td>10</td><td>1/6 / m</td><td>0.1 / m</td></tr>
+      <tr><td>Stone</td><td>1000</td><td>100</td><td>1 / m</td><td>0.125 / m</td></tr>
+      <tr><td>Iron</td><td>1500</td><td>20</td><td>1/13 / m</td><td>1/13 / m</td></tr>
+    </table></div>
+    <p>Two quirks are ported on purpose. A new piece starts at full support until its first update. A piece destroyed mid-frame still reports full support to its neighbours until Unity actually removes it at the end of the frame.</p>
+
+    <h3>Proving it</h3>
+    <p>A test harness copied the relevant methods <b>verbatim</b> out of the decompilation into a C# program, with small stand-ins for the engine types, and ran them side by side with this JavaScript across 280 scenarios: random terrain and inputs, staircases, ceilings, lethal falls, randomly built and demolished structures, and a player walking on bridges as they collapse. Every position, velocity, jump counter, support value and collapse matched <b>bit for bit</b> on all 286,017 frames. Each level also ships with a reference solution that the simulator proves stands within budget.</p>
+
+    <h3>The bridge between them</h3>
+    <p>One metre is 1.5 Terraria tiles, so a 2 m Valheim beam is 3 tiles long. Pieces are written into Terraria's tile map, so you walk on them with Terraria's real collision. Each frame runs the Terraria tick, then Valheim's wear updater, then Unity's end-of-frame destruction. Your build reach is Valheim's 5 m.</p>
+    <p style="margin-top:22px">Not affiliated with or endorsed by Re-Logic or Iron Gate. Terraria and Valheim are trademarks of their respective owners.</p>
+  </div>
+</section>
+
+<!-- Pause -->
+<div class="dialog" id="dlg-pause" role="dialog" aria-modal="true" aria-labelledby="pause-title">
+  <div class="box">
+    <h2 id="pause-title">Paused</h2>
+    <p id="pause-level"></p>
+    <div class="row-actions">
+      <button class="btn primary" data-act="resume">Resume</button>
+      <button class="btn" data-act="restart">Restart level</button>
+      <button class="btn" data-act="levels">Levels</button>
+    </div>
+  </div>
+</div>
+<!-- Win -->
+<div class="dialog" id="dlg-win" role="dialog" aria-modal="true" aria-labelledby="win-title">
+  <div class="box">
+    <h2 id="win-title">Crossed!</h2>
+    <p id="win-text"></p>
+    <div class="stats">
+      <div><b id="win-time">0:00</b>time</div>
+      <div><b id="win-pieces">0</b>pieces standing</div>
+      <div><b id="win-lost">0</b>collapsed</div>
+    </div>
+    <div class="row-actions">
+      <button class="btn primary" data-act="next">Next level</button>
+      <button class="btn" data-act="stay">Keep building</button>
+      <button class="btn" data-act="levels">Levels</button>
+    </div>
+  </div>
+</div>
+<!-- Death -->
+<div class="dialog" id="dlg-dead" role="dialog" aria-modal="true" aria-labelledby="dead-title">
+  <div class="box">
+    <h2 id="dead-title">You fell</h2>
+    <p id="dead-text"></p>
+    <div class="row-actions">
+      <button class="btn primary" data-act="respawn">Respawn (keep build)</button>
+      <button class="btn" data-act="restart">Restart level</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*SIM-BEGIN*/
+/* ==========================================================================
+   TERRAHEIM SIMULATION CORE
+   Two mechanics ported from decompiled game code into one deterministic sim.
+
+   1. Player movement + tile collision — Terraria 1.4.5.6 (Terraria.exe)
+      Player.Update / HorizontalMovement / JumpMovement / DryCollision /
+      SlopingCollision / BordersMovement, Collision.TileCollision / StepUp /
+      StepDown / SlopeCollision / WalkDownSlope.
+   2. Structural integrity — Valheim (assembly_valheim.dll)
+      WearNTear.UpdateSupport / UpdateWear / GetMaterialProperties /
+      GetSupportColorValue / Highlight, WearNTearUpdater.
+
+   Both games compute in IEEE single precision, so every float operation here
+   is rounded with Math.fround to stay bit-identical with the originals.
+   No original code, art or audio ships with this file: only the rules and
+   the numbers, re-expressed in JavaScript.
+   ========================================================================== */
+const SIM = (() => {
+  'use strict';
+  const f = Math.fround;
+  const trunc = Math.trunc;
+
+  const TILE = 16;            // Terraria world units per tile
+  const MARGIN = 44;          // tiles of border so Terraria's world-edge rules never touch play
+  const PX_PER_M = 24;        // our scale: 1 Valheim metre = 1.5 Terraria tiles
+
+  /* ------------------------------------------------------------------------
+     World: a Terraria tile map. Terrain and building pieces are both solid
+     full blocks (no slopes, half bricks, platforms or liquid).
+     ------------------------------------------------------------------------ */
+  function createWorld(levelW, levelH) {
+    const maxX = levelW + MARGIN * 2;
+    const maxY = levelH + MARGIN * 2;
+    const w = {
+      maxTilesX: maxX,
+      maxTilesY: maxY,
+      leftWorld: 0,
+      topWorld: 0,
+      rightWorld: maxX * TILE,
+      bottomWorld: maxY * TILE,
+      terrain: new Uint8Array(maxX * maxY),
+      piece: new Int32Array(maxX * maxY).fill(-1),
+      levelW, levelH,
+    };
+    // Everything outside the level rectangle is bedrock, except the open sky
+    // directly above the level.
+    for (let j = 0; j < maxY; j++) {
+      for (let i = 0; i < maxX; i++) {
+        const inLevelX = i >= MARGIN && i < MARGIN + levelW;
+        const aboveOrIn = j < MARGIN + levelH;
+        if (!(inLevelX && aboveOrIn)) w.terrain[j * maxX + i] = 1;
+      }
+    }
+    return w;
+  }
+
+  // Tile.nactive() && Main.tileSolid[type] for our tile set.
+  function solid(w, i, j) {
+    if (i < 0 || j < 0 || i >= w.maxTilesX || j >= w.maxTilesY) return true;
+    const k = j * w.maxTilesX + i;
+    return w.terrain[k] === 1 || w.piece[k] >= 0;
+  }
+
+  // WorldGen.InWorld
+  function inWorld(w, x, y, fluff) {
+    return !(x < fluff || x >= w.maxTilesX - fluff || y < fluff || y >= w.maxTilesY - fluff);
+  }
+
+  function clampI(v, lo, hi) { return v > hi ? hi : (v < lo ? lo : v); }
+
+  /* ------------------------------------------------------------------------
+     Collision (static class in Terraria). `up` / `down` are static flags that
+     the player code reads after the most recent TileCollision call.
+     ------------------------------------------------------------------------ */
+  const Collision = { up: false, down: false };
+
+  // Collision.TileCollision — full-block branch set (slope()==0, !halfBrick,
+  // !tileSolidTop for every tile in this world).
+  function tileCollision(w, Px, Py, Vx, Vy, Width, Height, gravDir) {
+    Collision.up = false;
+    Collision.down = false;
+    let rX = Vx, rY = Vy;
+    const vecX = Vx, vecY = Vy;
+    const v2X = f(Px + Vx), v2Y = f(Py + Vy);
+    const v3X = Px, v3Y = Py;
+    let value = trunc(f(Px / 16)) - 1;
+    let value2 = trunc(f(f(Px + Width) / 16)) + 2;
+    let value3 = trunc(f(Py / 16)) - 1;
+    let value4 = trunc(f(f(Py + Height) / 16)) + 2;
+    let num = -1, num2 = -1, num3 = -1, num4 = -1;
+    const num5 = clampI(value, 0, w.maxTilesX - 1);
+    value2 = clampI(value2, 0, w.maxTilesX - 1);
+    value3 = clampI(value3, 0, w.maxTilesY - 40);
+    value4 = clampI(value4, 0, w.maxTilesY - 40);
+    let num6 = (value4 + 3) * 16;
+    for (let i = num5; i < value2; i++) {
+      for (let j = value3; j < value4; j++) {
+        if (!solid(w, i, j)) continue;
+        const t4X = i * 16, t4Y = j * 16;
+        const num7 = 16;
+        if (!(f(v2X + Width) > t4X) || !(v2X < t4X + 16) || !(f(v2Y + Height) > t4Y) || !(v2Y < t4Y + num7)) continue;
+        if (f(v3Y + Height) <= t4Y) {
+          Collision.down = true;
+          if (num6 > t4Y) {
+            num3 = i;
+            num4 = j;
+            if (num3 !== num) {
+              rY = f(f(t4Y - f(v3Y + Height)) + (gravDir === -1 ? f(-0.01) : 0));
+              num6 = t4Y;
+            }
+          }
+        } else if (f(v3X + Width) <= t4X) {
+          num = i;
+          num2 = j;
+          if (num2 !== num4) rX = f(t4X - f(v3X + Width));
+          if (num3 === num) rY = vecY;
+        } else if (v3X >= t4X + 16) {
+          num = i;
+          num2 = j;
+          if (num2 !== num4) rX = f(f(t4X + 16) - v3X);
+          if (num3 === num) rY = vecY;
+        } else if (v3Y >= t4Y + num7) {
+          Collision.up = true;
+          num3 = i;
+          num4 = j;
+          rY = f(f(f(t4Y + num7) - v3Y) + (gravDir === 1 ? f(0.01) : 0));
+          if (num4 === num2) rX = vecX;
+        }
+      }
+    }
+    return [rX, rY];
+  }
+
+  // Collision.WalkDownSlope — with no sloped tiles it returns its input unchanged.
+  // Kept as an explicit call so the order of operations mirrors Player.Update.
+  function walkDownSlope(Px, Py, Vx, Vy) { return [Px, Py, Vx, Vy]; }
+
+  // Collision.SlopeCollision — for full blocks the tile loop never acts, but the
+  // trailing zero-velocity TileCollision still runs and resets up/down.
+  function slopeCollision(w, Px, Py, Vx, Vy, Width, Height) {
+    let p2X = Px, p2Y = Py;
+    let v3X = Vx, v3Y = Vy;
+    const velX = f(p2X - Px), velY = f(p2Y - Py);
+    const r = tileCollision(w, Px, Py, velX, velY, Width, Height, 1);
+    if (r[1] > velY) {
+      p2Y = f(Py + r[1]);
+      v3X = 0; v3Y = 0;
+      Collision.up = false;
+    } else if (r[1] < velY) {
+      p2Y = f(Py + r[1]);
+      v3X = 0; v3Y = 0;
+    }
+    return [p2X, p2Y, v3X, v3Y];
+  }
+
+  // Utils.FloatIntersect
+  function floatIntersect(r1x, r1y, r1w, r1h, r2x, r2y, r2w, r2h) {
+    return !(r1x > f(r2x + r2w) || r1y > f(r2y + r2h) || f(r1x + r1w) < r2x || f(r1y + r1h) < r2y);
+  }
+
+  // Collision.StepDown (waterWalk = false)
+  function stepDown(w, p) {
+    const width = p.width, height = p.height;
+    const vX = f(p.posX + p.velX);
+    const vY = f(f(f(Math.floor(f(f(p.posY + height) / 16))) * 16) - height);
+    const num = trunc(f(vX / 16));
+    const num2 = trunc(f(f(vX + width) / 16));
+    const num3 = trunc(f(f(f(vY + height) + 4) / 16));
+    const num4 = trunc(height / 16) + ((height % 16 !== 0) ? 1 : 0);
+    let num5 = (num3 + num4) * 16;
+    const num6 = f(f(w.bottomWorld / 16) - 42);
+    for (let i = num; i <= num2; i++) {
+      for (let j = num3; j <= num3 + 1; j++) {
+        if (!inWorld(w, i, j, 1)) continue;
+        if (j >= num6 || solid(w, i, j)) {
+          const num9 = j * 16;
+          if (floatIntersect(i * 16, j * 16 - 17, 16, 16, p.posX, p.posY, width, height) && num9 < num5) num5 = num9;
+        }
+      }
+    }
+    const num10 = f(num5 - f(p.posY + height));
+    if (num10 > 7 && num10 < 17) {
+      p.stepSpeed = f(1.5);
+      if (num10 > 9) p.stepSpeed = f(2.5);
+      p.gfxOffY = f(p.gfxOffY + f(f(p.posY + height) - num5));
+      p.posY = f(num5 - height);
+    }
+  }
+
+  // Collision.StepUp (gravDir = 1)
+  function stepUp(w, p) {
+    const width = p.width, height = p.height;
+    let num = 0;
+    if (p.velX < 0) num = -1;
+    if (p.velX > 0) num = 1;
+    const vX = f(p.posX + p.velX), vY = p.posY;
+    const num2 = trunc(f(f(f(vX + trunc(width / 2)) + (trunc(width / 2) + 1) * num) / 16));
+    const num3 = trunc(f(f(f(vY + height) - 1) / 16));
+    const num4 = trunc(height / 16) + ((height % 16 !== 0) ? 1 : 0);
+    if (!inWorld(w, num2, num3, 1) || num3 >= w.maxTilesY - 40) return;
+    for (let i = 1; i < num4 + 2; i++) if (!inWorld(w, num2, num3 - i, 0)) return;
+    if (!inWorld(w, num2 - num, num3 - num4, 0)) return;
+    let flag = true;
+    for (let j = 2; j < num4 + 1; j++) {
+      if (!inWorld(w, num2, num3 - j, 0)) return;
+      flag = flag && !solid(w, num2, num3 - j);
+    }
+    const flag2 = !solid(w, num2 - num, num3 - num4);
+    const flag3 = !solid(w, num2, num3 - 1);
+    const flag4 = solid(w, num2, num3);
+    if (!(num2 * 16 < f(vX + width)) || !(num2 * 16 + 16 > vX)) return;
+    if (!(flag4 && flag3 && flag && flag2)) return;
+    const num5 = num3 * 16;
+    if (!(num5 < f(vY + height))) return;
+    const num6 = f(f(vY + height) - num5);
+    if (num6 <= 16.1) {
+      p.gfxOffY = f(p.gfxOffY + f(f(p.posY + height) - num5));
+      p.posY = f(num5 - height);
+      p.stepSpeed = num6 < 9 ? 1 : 2;
+    }
+  }
+
+  /* ------------------------------------------------------------------------
+     Player — the vanilla path of Player.Update for an unequipped player on dry
+     ground with no mount, wings, buffs or accessories (gravDir = 1).
+     ------------------------------------------------------------------------ */
+  function createPlayer(w, spawnTileX, spawnTileY) {
+    const p = {
+      width: 20, height: 42,
+      posX: 0, posY: 0, velX: 0, velY: 0,
+      direction: 1,
+      jump: 0, releaseJump: false,
+      gfxOffY: 0, stepSpeed: 1,
+      fallStart: 0,
+      statLife: 100, statLifeMax: 100,
+      dead: false,
+      // per-tick stats, re-seeded every Update
+      maxFallSpeed: 10, gravity: f(0.4), jumpHeight: 15, jumpSpeed: f(5.01),
+      maxRunSpeed: 3, runAcceleration: f(0.08), runSlowdown: f(0.2), accRunSpeed: 3,
+      lastFallDamage: 0,
+    };
+    spawnPlayer(p, spawnTileX, spawnTileY);
+    return p;
+  }
+
+  // Player.Spawn: feet on the spawn tile's top edge, centred on the tile.
+  function spawnPlayer(p, tx, ty) {
+    p.posX = f(tx * 16 + 8 - trunc(p.width / 2));
+    p.posY = f(ty * 16 - p.height);
+    p.velX = 0; p.velY = 0;
+    p.jump = 0; p.releaseJump = false;
+    p.gfxOffY = 0; p.stepSpeed = 1;
+    p.fallStart = trunc(f(p.posY / 16));
+    p.statLife = p.statLifeMax;
+    p.dead = false;
+  }
+
+  function hurt(p, damage) {
+    // Player.Hurt with 0 defence: CalculateDamagePlayersTake leaves it unchanged.
+    p.lastFallDamage = damage;
+    p.statLife -= damage;
+    if (p.statLife <= 0) { p.statLife = 0; p.dead = true; }
+  }
+
+  // Player.HorizontalMovement (vanilla branches)
+  function horizontalMovement(p, c) {
+    const num5 = (c.right ? 1 : 0) - (c.left ? 1 : 0);
+    if (num5 !== 0) p.direction = num5;                       // ChangeDir
+    if (c.left && p.velX > -p.maxRunSpeed) {
+      if (p.velX > p.runSlowdown) p.velX = f(p.velX - p.runSlowdown);
+      p.velX = f(p.velX - p.runAcceleration);
+    } else if (c.right && p.velX < p.maxRunSpeed) {
+      if (p.velX < -p.runSlowdown) p.velX = f(p.velX + p.runSlowdown);
+      p.velX = f(p.velX + p.runAcceleration);
+    } else if (c.left && p.velX > -p.accRunSpeed) {
+      // accRunSpeed == maxRunSpeed without boots: unreachable, kept for parity
+      if (p.velY === 0) {
+        if (p.velX > p.runSlowdown) p.velX = f(p.velX - p.runSlowdown);
+        p.velX = f(p.velX - f(p.runAcceleration * f(0.2)));
+      }
+    } else if (c.right && p.velX < p.accRunSpeed) {
+      if (p.velY === 0) {
+        if (p.velX < -p.runSlowdown) p.velX = f(p.velX + p.runSlowdown);
+        p.velX = f(p.velX + f(p.runAcceleration * f(0.2)));
+      }
+    } else if (p.velY === 0) {
+      if (p.velX > p.runSlowdown) p.velX = f(p.velX - p.runSlowdown);
+      else if (p.velX < -p.runSlowdown) p.velX = f(p.velX + p.runSlowdown);
+      else p.velX = 0;
+    } else {
+      const half = f(p.runSlowdown * 0.5);
+      if (p.velX > p.runSlowdown * 0.5) p.velX = f(p.velX - half);
+      else if (p.velX < -p.runSlowdown * 0.5) p.velX = f(p.velX + half);
+      else p.velX = 0;
+    }
+  }
+
+  // Player.JumpMovement (vanilla branches)
+  function jumpMovement(p, c) {
+    if (c.jump) {
+      if (p.jump > 0) {
+        if (p.velY === 0) p.jump = 0;
+        else { p.velY = f(f(0 - p.jumpSpeed) * 1); p.jump--; }
+      } else if (p.velY === 0 && p.releaseJump) {
+        p.velY = f(f(0 - p.jumpSpeed) * 1);
+        p.jump = p.jumpHeight;
+        p.justJumped = true;
+      }
+      p.releaseJump = false;
+    } else {
+      p.jump = 0;
+      p.releaseJump = true;
+    }
+  }
+
+  // Player.DryCollision (velocity never exceeds 16 for an unequipped player,
+  // so the sub-stepping branch is unreachable and is not ported).
+  function dryCollision(w, p) {
+    const r = tileCollision(w, p.posX, p.posY, p.velX, p.velY, p.width, p.height, 1);
+    p.velX = r[0]; p.velY = r[1];
+    if (Collision.up) p.jump = 0;
+    p.posX = f(p.posX + p.velX);
+    p.posY = f(p.posY + p.velY);
+  }
+
+  // Player.SlopingCollision
+  function slopingCollision(w, p) {
+    const v = slopeCollision(w, p.posX, p.posY, p.velX, p.velY, p.width, p.height);
+    p.posX = v[0]; p.posY = v[1]; p.velX = v[2]; p.velY = v[3];
+  }
+
+  // Player.BordersMovement (non-remix world)
+  function bordersMovement(w, p) {
+    const num = 640;
+    const num2 = f(w.leftWorld + num);
+    if (p.posX < num2) { p.posX = num2; p.velX = 0; }
+    const num3 = f(f(w.rightWorld - num) - p.width);
+    if (p.posX > num3) { p.posX = num3; p.velX = 0; }
+    if (p.posY < f(w.topWorld + num)) {
+      p.posY = f(w.topWorld + num);
+      if (p.velY < f(0.11)) p.velY = f(0.11);
+    }
+    if (p.posY > f(w.bottomWorld - num)) {
+      if (!p.dead) { p.statLife = 0; p.dead = true; }
+      p.posY = f(w.bottomWorld - num);
+      p.velY = 0;
+    }
+  }
+
+  // One Terraria tick (60 per second). `c` = {left,right,jump,down,up}.
+  function playerTick(w, p, c0) {
+    const c = { left: !!c0.left, right: !!c0.right, jump: !!c0.jump, down: !!c0.down, up: !!c0.up };
+    if (c.left && c.right) { c.left = false; c.right = false; }
+    p.justJumped = false;
+    p.lastFallDamage = 0;
+
+    // Update(): per-tick stat reset
+    p.maxFallSpeed = 10;
+    p.gravity = f(0.4);
+    p.jumpHeight = 15;
+    p.jumpSpeed = f(5.01);
+    p.maxRunSpeed = 3;
+    p.runAcceleration = f(0.08);
+    p.runSlowdown = f(0.2);
+    p.accRunSpeed = p.maxRunSpeed;
+    p.maxFallSpeed = f(p.maxFallSpeed + f(0.01));
+    p.gravity = f(p.gravity * 1);          // space-gravity factor is 1 at the surface
+
+    // Fall damage, evaluated with last tick's velocity
+    if (p.velY === 0) {
+      const num9 = 25;
+      const num10 = trunc(f(p.posY / 16)) - p.fallStart;
+      if (num10 > num9) {
+        const dmg = trunc(f(num10 - num9)) * 10;
+        if (dmg > 0) hurt(p, dmg);
+      }
+      p.fallStart = trunc(f(p.posY / 16));
+    }
+    if (p.jump > 0) p.fallStart = trunc(f(p.posY / 16));
+
+    p.runAcceleration = f(p.runAcceleration * 1);   // * moveSpeed
+    p.maxRunSpeed = f(p.maxRunSpeed * 1);
+    horizontalMovement(p, c);
+    jumpMovement(p, c);
+
+    // Gravity
+    p.velY = f(p.velY + f(p.gravity * 1));
+    if (p.velY > p.maxFallSpeed) p.velY = p.maxFallSpeed;
+
+    // Visual step smoothing
+    const num105 = f(1 + f(Math.abs(p.velX) / 3));
+    if (p.gfxOffY > 0) {
+      p.gfxOffY = f(p.gfxOffY - f(num105 * p.stepSpeed));
+      if (p.gfxOffY < 0) p.gfxOffY = 0;
+    } else if (p.gfxOffY < 0) {
+      p.gfxOffY = f(p.gfxOffY + f(num105 * p.stepSpeed));
+      if (p.gfxOffY > 0) p.gfxOffY = 0;
+    }
+    if (p.gfxOffY > 32) p.gfxOffY = 32;
+    if (p.gfxOffY < -32) p.gfxOffY = -32;
+
+    // Stairs
+    const s = walkDownSlope(p.posX, p.posY, p.velX, p.velY);
+    p.posX = s[0]; p.posY = s[1]; p.velX = s[2]; p.velY = s[3];
+    if (p.velY === p.gravity) stepDown(w, p);
+    if (p.velY >= p.gravity && !c.down) stepUp(w, p);
+
+    // Collision
+    dryCollision(w, p);
+    slopingCollision(w, p);
+    if (Collision.up) { p.velY = f(0.01); p.jump = 0; }
+    bordersMovement(w, p);
+  }
+
+  /* ------------------------------------------------------------------------
+     Valheim structural integrity
+     ------------------------------------------------------------------------ */
+  // WearNTear.GetMaterialProperties: [maxSupport, minSupport, horizontalLoss, verticalLoss]
+  const MATERIALS = {
+    wood:     { name: 'Wood',      max: 100,  min: 10,  h: f(0.2),     v: f(0.125) },
+    corewood: { name: 'Core wood', max: 140,  min: 10,  h: f(1 / 6),   v: f(0.1) },
+    stone:    { name: 'Stone',     max: 1000, min: 100, h: 1,          v: f(0.125) },
+    iron:     { name: 'Iron',      max: 1500, min: 20,  h: f(1 / 13),  v: f(1 / 13) },
+  };
+
+  // Our piece shapes, in tiles (1.5 tiles = 1 m).
+  const SHAPES = {
+    beam: { name: 'Beam', w: 3, h: 1 },   // 2 m x 0.67 m
+    pole: { name: 'Pole', w: 1, h: 3 },   // 0.67 m x 2 m
+    wall: { name: 'Wall', w: 3, h: 3 },   // 2 m x 2 m
+  };
+
+  // tile units -> metres, y up (Unity convention)
+  function mx(tiles) { return f(tiles * 16 / PX_PER_M); }
+  function my(tiles) { return f(-tiles * 16 / PX_PER_M); }
+
+  function createStructure(w) {
+    return {
+      w,
+      list: [],             // WearNTear.s_allInstances
+      byId: [],
+      nextId: 0,
+      time: 0,
+      frame: 0,
+      // WearNTearUpdater
+      index: 0,
+      updatesPerFrame: 50,
+      sleepUntil: f(0 + 1),
+      sleepUntilNext: f(0 + 1),
+      pendingDestroy: [],
+      events: [],
+    };
+  }
+
+  function canPlace(S, shapeKey, tx, ty) {
+    const sh = SHAPES[shapeKey];
+    for (let j = ty; j < ty + sh.h; j++)
+      for (let i = tx; i < tx + sh.w; i++)
+        if (solid(S.w, i, j)) return false;
+    return true;
+  }
+
+  // Awake() + OnPlaced()
+  function placePiece(S, matKey, shapeKey, tx, ty) {
+    const sh = SHAPES[shapeKey];
+    const m = MATERIALS[matKey];
+    const id = S.nextId++;
+    const p = {
+      id, mat: matKey, shape: shapeKey, tx, ty, tw: sh.w, th: sh.h,
+      // collider bounds in metres (y up)
+      minX: mx(tx), maxX: mx(tx + sh.w),
+      minY: my(ty + sh.h), maxY: my(ty),
+      comX: f((tx + sh.w / 2) * 16 / PX_PER_M),
+      comY: f(-(ty + sh.h / 2) * 16 / PX_PER_M),
+      sizeX: f(sh.w * 16 / PX_PER_M), sizeY: f(sh.h * 16 / PX_PER_M),
+      support: m.max,                 // Awake: m_support = GetMaxSupport()
+      health: 100, maxHealth: 100,
+      createTime: S.time,
+      clearCachedSupport: false,
+      cacheCols: [], cachePos: [], cacheVals: [],
+      dead: false, removed: false,
+      myIndex: -1,
+      bornFrame: S.frame,
+    };
+    S.list.push(p);
+    p.myIndex = S.list.length - 1;
+    S.byId[id] = p;
+    for (let j = ty; j < ty + sh.h; j++)
+      for (let i = tx; i < tx + sh.w; i++)
+        S.w.piece[j * S.w.maxTilesX + i] = id;
+    // OnPlaced
+    p.createTime = -1;
+    p.clearCachedSupport = true;
+    return p;
+  }
+
+  function maxSupportOf(p) { return MATERIALS[p.mat].max; }
+  function minSupportOf(p) { return MATERIALS[p.mat].min; }
+
+  // GetSupport(): a destroyed piece has no valid ZDO until Unity finishes
+  // destroying it at the end of the frame, and reports max support meanwhile.
+  function getSupport(p) { return p.dead ? maxSupportOf(p) : p.support; }
+
+  function clearCached(p) { p.cacheCols.length = 0; p.cachePos.length = 0; p.cacheVals.length = 0; }
+
+  // Physics.OverlapBox with the piece's bounds grown by 0.3 m (m_size += 0.3).
+  function overlap(S, p) {
+    const hx = f(f(p.sizeX + f(0.3)) * f(0.5));
+    const hy = f(f(p.sizeY + f(0.3)) * f(0.5));
+    const loX = f(p.comX - hx), hiX = f(p.comX + hx);
+    const loY = f(p.comY - hy), hiY = f(p.comY + hy);
+    const w = S.w;
+    let terrain = false;
+    const seen = new Set();
+    const pieces = [];
+    // candidate tiles: metres -> tiles (x = t*2/3, y = -t*2/3)
+    const i0 = Math.max(0, Math.floor(loX * 1.5) - 1), i1 = Math.min(w.maxTilesX - 1, Math.ceil(hiX * 1.5) + 1);
+    const j0 = Math.max(0, Math.floor(-hiY * 1.5) - 1), j1 = Math.min(w.maxTilesY - 1, Math.ceil(-loY * 1.5) + 1);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const k = j * w.maxTilesX + i;
+        const tMinX = mx(i), tMaxX = mx(i + 1), tMaxY = my(j), tMinY = my(j + 1);
+        if (!(tMinX < hiX && tMaxX > loX && tMinY < hiY && tMaxY > loY)) continue;
+        if (w.terrain[k] === 1) terrain = true;
+        const id = w.piece[k];
+        if (id >= 0 && id !== p.id && !seen.has(id)) { seen.add(id); pieces.push(S.byId[id]); }
+      }
+    }
+    pieces.sort((a, b) => a.id - b.id);   // overlap order does not affect the result
+    return { terrain, pieces };
+  }
+
+  function dist3(ax, ay, bx, by) {
+    const dx = f(ax - bx), dy = f(ay - by), dz = 0;
+    return f(Math.sqrt(f(f(f(dx * dx) + f(dy * dy)) + f(dz * dz))));
+  }
+
+  const HALF_PI = f(f(Math.PI) / 2);
+  const RAD2DEG = f(57.29578);
+  function clamp01(t) { return t < 0 ? 0 : (t > 1 ? 1 : t); }
+  function lerpF(a, b, t) { return f(a + f(f(b - a) * clamp01(t))); }
+
+  // Vector3.Angle on vectors whose y was zeroed (z is always 0 here)
+  function angle3(ax, ay, bx, by) {
+    const sa = f(f(f(ax * ax) + f(ay * ay)) + 0);
+    const sb = f(f(f(bx * bx) + f(by * by)) + 0);
+    const denom = f(Math.sqrt(f(sa * sb)));
+    if (denom < f(1e-15)) return 0;
+    let dot = f(f(f(f(ax * bx) + f(ay * by)) + 0) / denom);
+    if (dot < -1) dot = -1; else if (dot > 1) dot = 1;
+    return f(f(Math.acos(dot)) * RAD2DEG);
+  }
+
+  // WearNTear.UpdateSupport
+  function updateSupport(S, p) {
+    const count = p.cacheCols.length;
+    if (count > 0) {
+      let num = 0;
+      let num2 = 0;
+      for (let i = 0; i < count; i++) {
+        const c = p.cacheCols[i];
+        if (c.removed) break;                       // collider == null
+        const s = getSupport(c);                    // pieces never move: position check passes
+        if (s > num2) num2 = s;
+        if (s === p.cacheVals[i]) num++;
+      }
+      if (num === p.cachePos.length && num2 > p.support) return;
+      clearCached(p);
+    }
+    const m = MATERIALS[p.mat];
+    const maxSupport = m.max, horizontalLoss = m.h, verticalLoss = m.v;
+    const ptsX = [], ptsY = [], vals = [];
+    const comX = p.comX, comY = p.comY;
+    let flag = false;
+    let num3 = 0;
+    const hits = overlap(S, p);
+    if (p.clearCachedSupport) {
+      for (const o of hits.pieces) if (!o.dead) clearCached(o);
+      p.clearCachedSupport = false;
+    }
+    if (hits.terrain) flag = true;
+    for (const o of hits.pieces) {
+      let num5 = f(dist3(comX, comY, o.comX, o.comY) + f(0.1));
+      const num6 = f(dist3(comX, comY, o.comX, o.comY) + f(0.1));   // pivot == COM
+      if (num6 < num5) num5 = num6;
+      const support2 = getSupport(o);
+      num3 = Math.max(num3, f(support2 - f(f(horizontalLoss * num5) * support2)));
+      // FindSupportPoint: BoxCollider.ClosestPoint(com)
+      const vx = comX < o.minX ? o.minX : (comX > o.maxX ? o.maxX : comX);
+      const vy = comY < o.minY ? o.minY : (comY > o.maxY ? o.maxY : comY);
+      if (vy < f(comY + f(0.05))) {
+        const dx = f(vx - comX), dy = f(vy - comY);
+        const mag = f(Math.sqrt(f(f(f(dx * dx) + f(dy * dy)) + 0)));
+        let ny = 0;
+        if (mag > f(1e-5)) ny = f(dy / mag);
+        if (ny < 0) {
+          const t = f(f(Math.acos(f(1 - Math.abs(ny)))) / HALF_PI);
+          const num7 = lerpF(horizontalLoss, verticalLoss, t);
+          const b = f(support2 - f(f(num7 * num5) * support2));
+          num3 = Math.max(num3, b);
+        }
+        const item = f(support2 - f(f(verticalLoss * num5) * support2));
+        ptsX.push(vx); ptsY.push(vy); vals.push(item);
+        p.cacheCols.push(o); p.cachePos.push(o.id); p.cacheVals.push(getSupport(o));
+      }
+    }
+    if (flag) { p.support = maxSupport; return; }
+    const count2 = ptsX.length;
+    for (let l = 0; l < count2 - 1; l++) {
+      const ax = f(ptsX[l] - comX);
+      for (let mm = l + 1; mm < count2; mm++) {
+        const num8 = f(f(vals[l] + vals[mm]) * f(0.5));
+        if (!(num8 <= num3)) {
+          const bx = f(ptsX[mm] - comX);
+          if (angle3(ax, 0, bx, 0) >= 100) num3 = num8;
+        }
+      }
+    }
+    p.support = Math.min(num3, maxSupport);
+    if (!(p.support >= minSupportOf(p))) clearCached(p);
+  }
+
+  function destroyPiece(S, p, cause) {
+    if (p.dead) return;
+    p.health = 0;
+    p.support = 0;
+    clearCached(p);
+    p.dead = true;
+    S.pendingDestroy.push(p);
+    S.events.push({ type: cause, piece: p });
+  }
+
+  // WearNTear.UpdateWear (support wear only — no rain, ash, lava or shields here)
+  function updateWear(S, p, time) {
+    if (p.dead) return;
+    const shouldUpdate = p.createTime < 0 ? true : f(time - p.createTime) > 30;
+    if (!shouldUpdate) return;
+    let num = 0;
+    updateSupport(S, p);
+    if (!(p.support >= minSupportOf(p))) num = 100;
+    if (num > 0) {
+      const damage = f(f(num / 100) * p.maxHealth);
+      if (p.health <= 0) return;
+      p.health = f(p.health - damage);
+      if (p.health <= 0) destroyPiece(S, p, 'collapse');
+    }
+  }
+
+  // WearNTearUpdater.Update / UpdateWearNTear
+  function updaterUpdate(S, time) {
+    if (time < S.sleepUntil) return;
+    const all = S.list;
+    if (S.sleepUntilNext === S.sleepUntil) {
+      S.sleepUntilNext = f(time + 1);
+      return;                                   // cover + ashlands material pass only
+    }
+    let num = S.index;
+    for (let i = 0; i < S.updatesPerFrame; i++) {
+      if (all.length === 0) break;
+      if (num >= all.length) break;
+      updateWear(S, all[num], time);
+      num++;
+    }
+    S.index = num < all.length ? num : 0;
+    if (S.index !== 0) return;
+    const num2 = f(S.sleepUntilNext - time);
+    if (!(Math.abs(num2) < f(0.1))) {
+      if (num2 < f(-0.8)) S.updatesPerFrame += 20;
+      else if (num2 < f(-0.4)) S.updatesPerFrame += 15;
+      else if (num2 < f(-0.2)) S.updatesPerFrame += 10;
+      else if (num2 < 0) S.updatesPerFrame += 5;
+      else if (num2 > f(0.8)) S.updatesPerFrame -= 20;
+      else if (num2 > f(0.6)) S.updatesPerFrame -= 15;
+      else if (num2 > f(0.3)) S.updatesPerFrame -= 10;
+      else if (num2 > f(0.2)) S.updatesPerFrame -= 5;
+    }
+    S.sleepUntil = S.sleepUntilNext;
+    S.updatesPerFrame = Math.max(S.updatesPerFrame, 5);
+    S.updatesPerFrame = Math.min(S.updatesPerFrame, 100);
+  }
+
+  // End of the Unity frame: destroyed objects leave the scene (OnDestroy swap-remove).
+  function endOfFrame(S) {
+    if (S.pendingDestroy.length === 0) return;
+    const w = S.w;
+    for (const p of S.pendingDestroy) {
+      if (p.myIndex !== -1) {
+        const last = S.list[S.list.length - 1];
+        S.list[p.myIndex] = last;
+        last.myIndex = p.myIndex;
+        S.list.pop();
+        p.myIndex = -1;
+      }
+      for (let j = p.ty; j < p.ty + p.th; j++)
+        for (let i = p.tx; i < p.tx + p.tw; i++) {
+          const k = j * w.maxTilesX + i;
+          if (w.piece[k] === p.id) w.piece[k] = -1;
+        }
+      p.removed = true;
+    }
+    S.pendingDestroy.length = 0;
+  }
+
+  // GetSupportColorValue + Highlight: the hammer's support tint (RGB 0..1+)
+  function rgbToHsv(r, g, b) {
+    function helper(offset, dominant, c1, c2) {
+      const V = dominant;
+      if (V !== 0) {
+        const small = c1 > c2 ? c2 : c1;
+        const diff = V - small;
+        let S, H;
+        if (diff !== 0) { S = diff / V; H = offset + (c1 - c2) / diff; }
+        else { S = 0; H = offset + (c1 - c2); }
+        H /= 6; if (H < 0) H += 1;
+        return [H, S, V];
+      }
+      return [0, 0, V];
+    }
+    if (b > g && b > r) return helper(4, b, r, g);
+    if (g > r) return helper(2, g, b, r);
+    return helper(0, r, g, b);
+  }
+  function hsvToRgb(H, S, V) {
+    if (S === 0) return [V, V, V];
+    if (V === 0) return [0, 0, 0];
+    const h = H * 6, hi = Math.floor(h), fr = h - hi;
+    const p1 = V * (1 - S), p2 = V * (1 - S * fr), p3 = V * (1 - S * (1 - fr));
+    switch (((hi % 6) + 6) % 6) {
+      case 0: return [V, p3, p1];
+      case 1: return [p2, V, p1];
+      case 2: return [p1, V, p3];
+      case 3: return [p1, p2, V];
+      case 4: return [p3, p1, V];
+      default: return [V, p1, p2];
+    }
+  }
+  function supportColorValue(p) {
+    const m = MATERIALS[p.mat];
+    let s = getSupport(p);
+    if (s >= m.max) return -1;
+    s -= m.min;
+    return clamp01(s / (m.max * 0.5 - m.min));
+  }
+  function supportColor(p) {
+    const v = supportColorValue(p);
+    if (v < 0) return [0.6, 0.8, 1];
+    const t = clamp01(v);
+    const base = [1 + (0 - 1) * t, 0 + (1 - 0) * t, 0];
+    const hsv = rgbToHsv(base[0], base[1], base[2]);
+    const S = 1 + (0.5 - 1) * t;
+    const V = 1.2 + (0.9 - 1.2) * t;
+    return hsvToRgb(hsv[0], S, V);
+  }
+
+  // One 60 Hz frame of the combined game: player first, then the wear updater,
+  // then Unity's end-of-frame destruction.
+  function frameTick(S, player, controls) {
+    if (player && !player.dead) playerTick(S.w, player, controls);
+    updaterUpdate(S, S.time);
+    endOfFrame(S);
+    S.frame++;
+    S.time = f(S.frame / 60);
+  }
+
+  return {
+    f, TILE, MARGIN, PX_PER_M, MATERIALS, SHAPES, Collision,
+    createWorld, solid, createPlayer, spawnPlayer, playerTick,
+    tileCollision, stepUp, stepDown,
+    createStructure, canPlace, placePiece, destroyPiece, updaterUpdate, endOfFrame,
+    updateSupport, getSupport, supportColor, supportColorValue, frameTick,
+  };
+})();
+/*SIM-END*/
+/*LEVELS-BEGIN*/
+// Level data. Coordinates are level tiles (x right, y down); `top` is the row
+// of the first solid tile. Every level ships with a reference solution that
+// the test suite builds in the simulator to prove it stands within budget.
+const LEVELS = [
+  {
+    id: 'first-span',
+    name: 'The First Span',
+    brief: 'A narrow gorge. Lay wooden beams from cliff to cliff, then walk across.',
+    hint: 'Beams touching the cliff are fully supported (blue). Each beam further out carries less.',
+    w: 72, h: 40,
+    rects: [[0, 24, 26, 16], [26, 34, 12, 6], [38, 24, 34, 16]],
+    spawn: [10, 24], goal: [62, 24],
+    budget: { wood: 8 },
+    solution: [['wood', 'beam', 26, 24], ['wood', 'beam', 29, 24], ['wood', 'beam', 32, 24], ['wood', 'beam', 35, 24]],
+  },
+  {
+    id: 'overreach',
+    name: 'Overreach',
+    brief: 'Too wide for wood to cantilever. Drop into the gorge and raise a pillar to carry the middle.',
+    hint: 'Wood loses support fastest sideways. A vertical pole from the gorge floor resets the chain.',
+    w: 96, h: 46,
+    rects: [[0, 22, 25, 24], [25, 35, 27, 11], [52, 22, 44, 24]],
+    spawn: [10, 22], goal: [84, 22],
+    budget: { wood: 18 },
+    solution: [
+      ['wood', 'pole', 38, 32], ['wood', 'pole', 38, 29], ['wood', 'pole', 38, 26], ['wood', 'pole', 38, 23],
+      ['wood', 'beam', 25, 22], ['wood', 'beam', 28, 22], ['wood', 'beam', 31, 22], ['wood', 'beam', 34, 22],
+      ['wood', 'beam', 37, 22], ['wood', 'beam', 40, 22], ['wood', 'beam', 43, 22], ['wood', 'beam', 46, 22],
+      ['wood', 'beam', 49, 22],
+    ],
+  },
+  {
+    id: 'stone-foot',
+    name: 'Stone Foot',
+    brief: 'The mesa is far above. Wood alone tops out too low: found the tower on stone.',
+    hint: 'Stone carries huge loads straight down but nothing sideways. Jump, then place a piece beneath you to climb.',
+    w: 84, h: 72,
+    rects: [[0, 62, 42, 10], [42, 70, 7, 2], [49, 22, 35, 50]],
+    spawn: [8, 62], goal: [74, 22],
+    budget: { stone: 10, wood: 14 },
+    solution: [
+      ['stone', 'wall', 37, 59], ['stone', 'wall', 37, 56], ['stone', 'wall', 37, 53], ['stone', 'wall', 37, 50],
+      ['stone', 'wall', 37, 47], ['stone', 'wall', 37, 44], ['stone', 'wall', 37, 41], ['stone', 'wall', 37, 38],
+      ['wood', 'pole', 39, 35], ['wood', 'pole', 39, 32], ['wood', 'pole', 39, 29], ['wood', 'pole', 39, 26],
+      ['wood', 'pole', 39, 23], ['wood', 'beam', 40, 22], ['wood', 'beam', 43, 22], ['wood', 'beam', 46, 22],
+    ],
+  },
+  {
+    id: 'core-span',
+    name: 'Core Span',
+    brief: 'A bottomless chasm with one rock spire. Core wood reaches further than plain wood.',
+    hint: 'Bridge to the spire first: anything touching rock is fully supported again.',
+    w: 96, h: 60,
+    rects: [[0, 22, 24, 38], [24, 58, 46, 2], [45, 23, 4, 35], [70, 22, 26, 38]],
+    spawn: [9, 22], goal: [86, 22],
+    budget: { corewood: 16 },
+    solution: [
+      ...Array.from({ length: 7 }, (_, k) => ['corewood', 'beam', 24 + 3 * k, 22]),
+      ...Array.from({ length: 7 }, (_, k) => ['corewood', 'beam', 49 + 3 * k, 22]),
+    ],
+  },
+  {
+    id: 'iron-will',
+    name: 'Iron Will',
+    brief: 'Fifteen metres of nothing. Only iron keeps its strength that far from the rock.',
+    hint: 'Iron loses one thirteenth of its support per metre, in any direction.',
+    w: 110, h: 64,
+    rects: [[0, 24, 24, 40], [24, 62, 60, 2], [84, 24, 26, 40]],
+    spawn: [9, 24], goal: [100, 24],
+    budget: { iron: 22, wood: 6 },
+    solution: Array.from({ length: 20 }, (_, k) => ['iron', 'beam', 24 + 3 * k, 24]),
+  },
+  {
+    id: 'freebuild',
+    name: 'Freebuild',
+    brief: 'Rolling hills and every material. No goal: build whatever you like and watch it stand or fall.',
+    hint: 'Press 1–4 for materials and Q / E for shapes.',
+    w: 180, h: 70,
+    rects: null,           // generated: rolling hills
+    spawn: [20, 0], goal: null,
+    budget: { wood: Infinity, corewood: Infinity, stone: Infinity, iron: Infinity },
+    solution: [],
+  },
+];
+
+// Freebuild terrain: a deterministic heightmap of gentle hills and one gorge.
+function freebuildRects(lv) {
+  const rects = [];
+  for (let x = 0; x < lv.w; x++) {
+    let top = 48 + Math.round(5 * Math.sin(x / 13) + 3 * Math.sin(x / 5.3 + 1.7));
+    if (x > 92 && x < 112) top = 64;
+    rects.push([x, top, 1, lv.h - top]);
+  }
+  return rects;
+}
+
+function levelRects(lv) { return lv.rects || freebuildRects(lv); }
+
+// Builds the playable state for a level: world, structure and player.
+function buildLevel(SIM, lv) {
+  const M = SIM.MARGIN;
+  const w = SIM.createWorld(lv.w, lv.h);
+  for (const [x0, y0, rw, rh] of levelRects(lv))
+    for (let y = y0; y < y0 + rh; y++)
+      for (let x = x0; x < x0 + rw; x++) w.terrain[(y + M) * w.maxTilesX + (x + M)] = 1;
+  const S = SIM.createStructure(w);
+  let spawn = lv.spawn;
+  if (lv.id === 'freebuild') {
+    let y = 0;
+    while (!SIM.solid(w, spawn[0] + M, y + M)) y++;
+    spawn = [spawn[0], y];
+  }
+  const player = SIM.createPlayer(w, spawn[0] + M, spawn[1] + M);
+  return { w, S, player, spawn: [spawn[0] + M, spawn[1] + M] };
+}
+/*LEVELS-END*/
+</script>
+<script>
+(() => {
+  'use strict';
+  const M = SIM.MARGIN, T = SIM.TILE;
+  const $ = s => document.querySelector(s);
+  const motionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+  let reduceMotion = motionQuery.matches;
+  motionQuery.addEventListener?.('change', e => { reduceMotion = e.matches; });
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('terraheim:' + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } },
+    set(k, v) { try { localStorage.setItem('terraheim:' + k, JSON.stringify(v)); } catch (_) { /* storage unavailable */ } },
+  };
+
+  // Integer hash -> [0,1) for deterministic texture noise.
+  function hash(x, y, s) {
+    let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(s | 0, 1442695041)) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  }
+  const clamp = (v, a, b) => v < a ? a : (v > b ? b : v);
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  /* ======================================================================
+     AUDIO — tiny synthesised effects (no samples)
+     ====================================================================== */
+  const Audio = (() => {
+    let ctx = null, master = null, wind = null, enabled = store.get('sound', true);
+    function ensure() {
+      if (ctx || !enabled) return;
+      try {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination);
+        // ambient wind: looped filtered noise
+        const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+        let last = 0;
+        for (let i = 0; i < len; i++) { last = last * 0.985 + (Math.random() * 2 - 1) * 0.015; d[i] = last * 3.2; }
+        const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+        const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+        wind = ctx.createGain(); wind.gain.value = 0.18;
+        src.connect(lp).connect(wind).connect(master); src.start();
+      } catch (_) { ctx = null; }
+    }
+    function noise(dur) {
+      const len = Math.max(1, Math.floor(ctx.sampleRate * dur)), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      const s = ctx.createBufferSource(); s.buffer = buf; return s;
+    }
+    function env(g, t, a, peak, dec) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + dec); }
+    function tone(type, f0, f1, dur, peak, delay = 0) {
+      const t = ctx.currentTime + delay, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+      env(g, t, 0.005, peak, dur); o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.05);
+    }
+    function burst(freq, q, dur, peak, type = 'bandpass', delay = 0) {
+      const t = ctx.currentTime + delay, s = noise(dur + 0.05), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      f.type = type; f.frequency.value = freq; f.Q.value = q; env(g, t, 0.003, peak, dur);
+      s.connect(f).connect(g).connect(master); s.start(t); s.stop(t + dur + 0.05);
+    }
+    const play = {
+      jump() { tone('square', 260, 520, 0.09, 0.05); },
+      land(v) { burst(180, 0.8, 0.12, clamp(v / 10, 0.05, 0.35), 'lowpass'); },
+      place(mat) {
+        if (mat === 'stone') { burst(260, 1.2, 0.16, 0.35, 'lowpass'); tone('sine', 120, 70, 0.14, 0.2); }
+        else if (mat === 'iron') { tone('triangle', 880, 860, 0.35, 0.09); tone('sine', 1320, 1300, 0.25, 0.05); burst(2400, 4, 0.05, 0.12); }
+        else { burst(mat === 'corewood' ? 700 : 900, 3, 0.07, 0.32); tone('sine', 190, 150, 0.08, 0.16); }
+      },
+      remove() { tone('triangle', 520, 300, 0.1, 0.07); burst(1200, 2, 0.06, 0.12); },
+      creak() { const t = ctx.currentTime, o = ctx.createOscillator(), m = ctx.createOscillator(), mg = ctx.createGain(), g = ctx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(140 + Math.random() * 60, t); o.frequency.linearRampToValueAtTime(90, t + 0.5);
+        m.frequency.value = 23; mg.gain.value = 40; m.connect(mg).connect(o.frequency);
+        const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 600; f.Q.value = 6;
+        env(g, t, 0.06, 0.06, 0.45); o.connect(f).connect(g).connect(master); o.start(t); m.start(t); o.stop(t + 0.6); m.stop(t + 0.6); },
+      collapse(mat) { burst(mat === 'stone' ? 220 : 520, 0.7, 0.45, 0.4, 'lowpass'); tone('sine', 90, 40, 0.4, 0.22); if (mat === 'iron') tone('triangle', 600, 420, 0.5, 0.06); },
+      hurt() { burst(900, 1, 0.12, 0.25); tone('square', 300, 120, 0.18, 0.06); },
+      win() { [0, 4, 7, 12, 16].forEach((n, i) => tone('triangle', 330 * Math.pow(2, n / 12), 330 * Math.pow(2, n / 12), 0.5, 0.07, i * 0.09)); },
+      deny() { tone('square', 140, 110, 0.08, 0.04); },
+    };
+    return {
+      get enabled() { return enabled; },
+      unlock() { ensure(); if (ctx && ctx.state === 'suspended') ctx.resume(); },
+      toggle() { enabled = !enabled; store.set('sound', enabled); if (!enabled && ctx) { ctx.close(); ctx = null; } else ensure(); return enabled; },
+      fx(name, ...a) { if (!enabled) return; ensure(); if (!ctx || ctx.state !== 'running') return; try { play[name](...a); } catch (_) { /* audio is best-effort */ } },
+      pauseAmbient(p) { if (ctx && wind) wind.gain.setTargetAtTime(p ? 0 : 0.18, ctx.currentTime, 0.2); },
+    };
+  })();
+
+  /* ======================================================================
+     ART — palettes and procedurally drawn sprites
+     ====================================================================== */
+  const MAT_COLORS = {
+    wood:     { base: '#b9834a', light: '#d9a568', dark: '#7c5229', line: '#5e3b1c' },
+    corewood: { base: '#7f4c31', light: '#a3664a', dark: '#53301e', line: '#3a2014' },
+    stone:    { base: '#9aa3b6', light: '#c2c9d6', dark: '#6b7286', line: '#4c5266' },
+    iron:     { base: '#6f7f93', light: '#a4b3c4', dark: '#46525f', line: '#2f3843' },
+  };
+  const MAT_ORDER = ['wood', 'corewood', 'stone', 'iron'];
+  const SHAPE_ORDER = ['beam', 'pole', 'wall'];
+
+  function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+  // Piece sprites, cached per material + shape.
+  const pieceSprites = {};
+  function pieceSprite(mat, shape) {
+    const key = mat + shape;
+    if (pieceSprites[key]) return pieceSprites[key];
+    const sh = SIM.SHAPES[shape], W = sh.w * T, H = sh.h * T;
+    const c = makeCanvas(W, H), g = c.getContext('2d'), col = MAT_COLORS[mat];
+    g.fillStyle = col.base; g.fillRect(0, 0, W, H);
+    const horizontal = W >= H;
+    if (mat === 'wood' || mat === 'corewood') {
+      // planks with grain running along the long axis
+      for (let i = 0; i < (horizontal ? H : W); i += 1) {
+        for (let j = 0; j < (horizontal ? W : H); j++) {
+          const n = hash(i, j >> 2, mat.length) ;
+          if (n < 0.07) { g.fillStyle = col.dark; horizontal ? g.fillRect(j, i, 1, 1) : g.fillRect(i, j, 1, 1); }
+          else if (n > 0.95) { g.fillStyle = col.light; horizontal ? g.fillRect(j, i, 1, 1) : g.fillRect(i, j, 1, 1); }
+        }
+      }
+      g.fillStyle = col.line;
+      if (horizontal) { for (let y = 5; y < H - 1; y += 5) g.fillRect(0, y, W, 1); for (let x = 15; x < W; x += 24) g.fillRect(x, 0, 1, H); }
+      else { for (let x = 5; x < W - 1; x += 5) g.fillRect(x, 0, 1, H); for (let y = 15; y < H; y += 24) g.fillRect(0, y, W, 1); }
+      g.fillStyle = col.light; g.fillRect(0, 0, W, 1); g.fillRect(0, 0, 1, H);
+      // pegs
+      g.fillStyle = col.line;
+      if (horizontal) { g.fillRect(3, 2, 2, 2); g.fillRect(W - 5, 2, 2, 2); if (H > T) { g.fillRect(3, H - 4, 2, 2); g.fillRect(W - 5, H - 4, 2, 2); } }
+      else { g.fillRect(2, 3, 2, 2); g.fillRect(2, H - 5, 2, 2); }
+    } else if (mat === 'stone') {
+      // ashlar blocks
+      const bw = 12, bh = 8;
+      for (let y = 0; y < H; y += bh) {
+        const off = ((y / bh) % 2) * (bw / 2);
+        for (let x = -off; x < W; x += bw) {
+          const t = hash(x + 99, y, 3);
+          g.fillStyle = t < 0.33 ? col.base : (t < 0.66 ? '#8f98ab' : '#a6aec0');
+          g.fillRect(x + 1, y + 1, bw - 1, bh - 1);
+          g.fillStyle = col.light; g.fillRect(x + 1, y + 1, bw - 2, 1);
+        }
+      }
+      g.fillStyle = col.line;
+      for (let y = 0; y < H; y += bh) g.fillRect(0, y, W, 1);
+      for (let y = 0; y < H; y += bh) { const off = ((y / bh) % 2) * (bw / 2); for (let x = -off; x < W; x += bw) g.fillRect(x, y, 1, bh); }
+      for (let i = 0; i < W * H / 30; i++) { g.fillStyle = 'rgba(40,44,60,0.35)'; g.fillRect(Math.floor(hash(i, 7, 9) * W), Math.floor(hash(i, 11, 9) * H), 1, 1); }
+    } else {
+      // riveted iron plate
+      const grad = g.createLinearGradient(0, 0, horizontal ? 0 : W, horizontal ? H : 0);
+      grad.addColorStop(0, col.light); grad.addColorStop(0.45, col.base); grad.addColorStop(1, col.dark);
+      g.fillStyle = grad; g.fillRect(0, 0, W, H);
+      g.fillStyle = col.line; g.fillRect(0, 0, W, 1); g.fillRect(0, H - 1, W, 1); g.fillRect(0, 0, 1, H); g.fillRect(W - 1, 0, 1, H);
+      const step = 8;
+      for (let x = 4; x < W - 2; x += step) for (let y = 4; y < H - 2; y += step) {
+        if (x > 4 && x < W - 6 && y > 4 && y < H - 6) continue;
+        g.fillStyle = '#dfe7ef'; g.fillRect(x - 1, y - 1, 2, 2); g.fillStyle = col.line; g.fillRect(x, y, 1, 1);
+      }
+      g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(2, 2, W - 4, 1);
+    }
+    // outer edge
+    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(0, H - 1, W, 1); g.fillRect(W - 1, 0, 1, H);
+    pieceSprites[key] = c;
+    return c;
+  }
+
+  // Player: a small Norse wanderer, drawn as pixel rects onto cached frames.
+  const PLAYER_FRAMES = {};
+  function drawWanderer(g, frame, kind) {
+    // canvas is 28 x 48; hitbox (20 x 42) sits at x=4, y=6
+    const px = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x + 4, y + 6, w, h); };
+    const skin = '#f1c7a1', beard = '#d9783a', beardDark = '#a9542a', tunic = '#3f6fb0', tunicDark = '#2c4f80',
+      belt = '#5a3a1e', buckle = '#e8c35a', pants = '#3a3348', boot = '#2a1f1a', helm = '#9aa6b5', helmDark = '#606b7a',
+      horn = '#efe3c4', cape = '#b8323f', capeDark = '#86222d';
+    let legA = 0, legB = 0, armSwing = 0, bob = 0, tuck = 0;
+    if (kind === 'run') { const ph = [0, 1, 2, 1][frame % 4]; legA = [3, 0, -3, 0][frame % 4]; legB = -legA; armSwing = legA; bob = ph === 1 ? -1 : 0; }
+    if (kind === 'jump') { legA = 2; legB = -2; tuck = 3; armSwing = -3; }
+    if (kind === 'fall') { legA = -1; legB = 1; armSwing = 3; }
+    // cape
+    px(1, 15 + bob, 6, 18 - tuck, cape); px(1, 30 + bob - tuck, 5, 2, capeDark);
+    // back leg
+    px(6 + legB, 32 - tuck, 4, 7, pants); px(6 + legB, 38 - tuck, 5, 4, boot);
+    // torso
+    px(5, 17 + bob, 11, 13, tunic); px(5, 27 + bob, 11, 3, tunicDark);
+    px(5, 25 + bob, 11, 2, belt); px(10, 25 + bob, 2, 2, buckle);
+    // front leg
+    px(10 + legA, 30 - tuck, 4, 8, pants); px(10 + legA, 37 - tuck, 6, 5, boot);
+    // arm
+    px(12, 18 + bob, 3, 7 + 0, tunicDark); px(12 + armSwing * 0.6, 24 + bob, 3, 3, skin);
+    // head
+    px(6, 6 + bob, 10, 10, skin);
+    px(13, 9 + bob, 2, 2, '#1d1b29');                       // eye
+    px(6, 12 + bob, 10, 6, beard); px(8, 16 + bob, 7, 3, beard); px(9, 18 + bob, 4, 2, beardDark);
+    px(11, 12 + bob, 4, 1, beardDark);                      // moustache
+    // helmet + horns
+    px(5, 3 + bob, 12, 5, helm); px(5, 7 + bob, 12, 1, helmDark); px(10, 2 + bob, 2, 7, helmDark);
+    px(2, 1 + bob, 3, 3, horn); px(1, -1 + bob, 2, 3, horn); px(17, 1 + bob, 3, 3, horn); px(19, -1 + bob, 2, 3, horn);
+  }
+  function playerFrame(kind, frame, dir) {
+    const key = kind + frame + dir;
+    if (PLAYER_FRAMES[key]) return PLAYER_FRAMES[key];
+    const c = makeCanvas(28, 48), g = c.getContext('2d');
+    if (dir < 0) { g.translate(28, 0); g.scale(-1, 1); }
+    drawWanderer(g, frame, kind);
+    PLAYER_FRAMES[key] = c;
+    return c;
+  }
+
+  // Heart icon for the HUD (Terraria shows 20 life per heart).
+  function heartDataURL(fill) {
+    const c = makeCanvas(9, 8), g = c.getContext('2d');
+    const shape = ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'];
+    shape.forEach((r, y) => [...r].forEach((ch, x) => {
+      if (ch !== 'X') return;
+      const inFill = (x + 0.5) / 7 <= fill;
+      g.fillStyle = inFill ? (y < 2 && x < 3 ? '#ff9aa6' : '#e8344a') : '#3a2733';
+      g.fillRect(x + 1, y, 1, 1);
+    }));
+    return c.toDataURL();
+  }
+
+  /* ======================================================================
+     BACKDROP — sky, aurora, stars and parallax mountains
+     ====================================================================== */
+  const STARS = Array.from({ length: 160 }, (_, i) => ({ x: hash(i, 1, 5), y: hash(i, 2, 5) * 0.75, s: hash(i, 3, 5), t: hash(i, 4, 5) * 6.28 }));
+  function ridge(seed, n, rough) {
+    // fractal value noise, normalised to 0..1
+    const out = new Float32Array(n);
+    let norm = 0;
+    for (let o = 0, amp = 1; o < 5; o++, amp *= rough) norm += amp;
+    for (let i = 0; i < n; i++) {
+      let v = 0, amp = 1, freq = 1 / 64;
+      for (let o = 0; o < 5; o++) {
+        const x = i * freq, x0 = Math.floor(x), fr = x - x0, s = fr * fr * (3 - 2 * fr);
+        const period = n * freq;   // wrap each octave so the ridge tiles seamlessly
+        v += lerp(hash(x0 % period, o, seed), hash((x0 + 1) % period, o, seed), s) * amp;
+        amp *= rough; freq *= 2;
+      }
+      out[i] = v / norm;
+    }
+    return out;
+  }
+  const RIDGES = [
+    { data: ridge(11, 2048, 0.55), par: 0.08, base: 0.78, amp: 0.62, col: '#273257', cap: '#c9d6f2' },
+    { data: ridge(23, 2048, 0.5), par: 0.18, base: 0.88, amp: 0.55, col: '#1c2647', cap: null },
+    { data: ridge(37, 2048, 0.45), par: 0.32, base: 0.98, amp: 0.48, col: '#141b35', cap: null },
+  ];
+
+  /* ======================================================================
+     GAME STATE
+     ====================================================================== */
+  const canvas = $('#view');
+  const ctx = canvas.getContext('2d');
+  const buf = makeCanvas(320, 180);
+  const bctx = buf.getContext('2d');
+  let zoom = 2, bufW = 320, bufH = 180;
+
+  const G = {
+    mode: 'menu',            // menu | play | pause | win | dead
+    levelIndex: 0,
+    level: null,
+    world: null, S: null, player: null, spawn: null,
+    budget: {},
+    mat: 'wood', shape: 'beam',
+    supportView: store.get('supportView', false),
+    removeMode: false,
+    frames: 0, lost: 0, won: false,
+    cam: { x: 0, y: 0, tx: 0, ty: 0 },
+    prev: { x: 0, y: 0 },
+    shake: 0,
+    particles: [],
+    popups: [],
+    terrainTex: null,
+    animFrame: 0, animCounter: 0,
+    lastCreak: 0,
+    mouse: { x: -1, y: -1, inside: false, wx: 0, wy: 0 },
+    ghost: null,
+    keys: new Set(),
+    touchHeld: { left: false, right: false, jump: false, down: false },
+    queue: [],
+    deathPending: false,
+    time: 0,
+  };
+  const completed = store.get('completed', {});
+
+  /* ---------- level lifecycle ---------- */
+  function startLevel(index, keepBuild) {
+    const lv = LEVELS[index];
+    G.levelIndex = index;
+    G.level = lv;
+    if (!keepBuild) {
+      const st = buildLevel(SIM, lv);
+      G.world = st.w; G.S = st.S; G.player = st.player; G.spawn = st.spawn;
+      G.budget = {};
+      for (const k of MAT_ORDER) G.budget[k] = lv.budget[k] || 0;
+      G.frames = 0; G.lost = 0; G.won = false;
+      G.particles.length = 0; G.popups.length = 0;
+      G.terrainTex = renderTerrain(G.world, lv);
+      const first = MAT_ORDER.find(k => G.budget[k] > 0);
+      G.mat = first || 'wood';
+      G.shape = 'beam';
+    } else {
+      SIM.spawnPlayer(G.player, G.spawn[0], G.spawn[1]);
+    }
+    const p = G.player;
+    G.prev.x = p.posX; G.prev.y = p.posY;
+    const c = playerCenter();
+    G.cam.x = G.cam.tx = c.x; G.cam.y = G.cam.ty = c.y;
+    G.queue.length = 0;
+    setMode('play');
+    buildHud();
+    updateHearts();
+    toast(lv.hint, 5200);
+  }
+
+  function setMode(m) {
+    G.mode = m;
+    $('#screen-menu').classList.toggle('on', m === 'menu');
+    $('#screen-about').classList.toggle('on', m === 'about');
+    $('#hud').classList.toggle('on', m === 'play' || m === 'pause' || m === 'win' || m === 'dead');
+    $('#touch').classList.toggle('on', m === 'play');
+    $('#dlg-pause').classList.toggle('on', m === 'pause');
+    $('#dlg-win').classList.toggle('on', m === 'win');
+    $('#dlg-dead').classList.toggle('on', m === 'dead');
+    $('#cursor-note').style.display = 'none';
+    Audio.pauseAmbient(m !== 'play');
+    const focusMap = { pause: '#dlg-pause .btn', win: '#dlg-win .btn', dead: '#dlg-dead .btn' };
+    if (focusMap[m]) setTimeout(() => $(focusMap[m])?.focus(), 0);
+    if (m === 'menu') renderLevelGrid();
+  }
+
+  /* ---------- terrain texture ---------- */
+  function renderTerrain(w, lv) {
+    const x0 = M - 2, y0 = M - 2, x1 = M + lv.w + 2, y1 = M + lv.h + 2;
+    const c = makeCanvas((x1 - x0) * T, (y1 - y0) * T), g = c.getContext('2d');
+    const solidAt = (i, j) => w.terrain[j * w.maxTilesX + i] === 1;
+    const depthCache = new Map();
+    const depth = (i, j) => {   // tiles below the nearest exposed surface above
+      const k = i * 100000 + j;
+      if (depthCache.has(k)) return depthCache.get(k);
+      let d = 0;
+      while (d < 12 && j - d - 1 >= 0 && solidAt(i, j - d - 1)) d++;
+      depthCache.set(k, d);
+      return d;
+    };
+    for (let j = y0; j < y1; j++) {
+      for (let i = x0; i < x1; i++) {
+        if (!solidAt(i, j)) continue;
+        const X = (i - x0) * T, Y = (j - y0) * T, d = depth(i, j);
+        const stone = d >= 4 + Math.floor(hash(i, 0, 8) * 3);
+        for (let yy = 0; yy < T; yy += 2) for (let xx = 0; xx < T; xx += 2) {
+          const n = hash(i * 8 + (xx >> 1), j * 8 + (yy >> 1), 1);
+          let col;
+          if (stone) col = n < 0.18 ? '#3f4454' : (n < 0.75 ? '#525869' : '#626a7d');
+          else col = n < 0.2 ? '#5a3a26' : (n < 0.8 ? '#6d4730' : '#7d5538');
+          // deeper -> darker
+          g.fillStyle = col; g.fillRect(X + xx, Y + yy, 2, 2);
+        }
+        const dark = Math.min(0.55, d * 0.045);
+        if (dark > 0) { g.fillStyle = `rgba(8,10,24,${dark})`; g.fillRect(X, Y, T, T); }
+        if (stone && hash(i, j, 21) < 0.12) { g.fillStyle = '#7c86a0'; g.fillRect(X + 4 + Math.floor(hash(i, j, 22) * 8), Y + 5, 2, 2); }
+        // grass cap on exposed tops
+        if (!solidAt(i, j - 1)) {
+          g.fillStyle = '#4c8f45'; g.fillRect(X, Y, T, 5);
+          g.fillStyle = '#6dbb5c'; g.fillRect(X, Y, T, 3);
+          g.fillStyle = '#a5e07c'; g.fillRect(X, Y, T, 1);
+          for (let k = 0; k < 4; k++) { const gx = Math.floor(hash(i, k, 31) * 15); const gh = 1 + Math.floor(hash(i, k, 32) * 3); g.fillStyle = k % 2 ? '#6dbb5c' : '#8fd36d'; g.fillRect(X + gx, Y - gh, 1, gh); }
+          for (let k = 0; k < 3; k++) { g.fillStyle = '#3b7537'; g.fillRect(X + Math.floor(hash(i, k, 33) * 15), Y + 5, 1, 1 + Math.floor(hash(i, k, 34) * 2)); }
+        }
+        // dark rims against air
+        g.fillStyle = 'rgba(20,12,10,0.55)';
+        if (!solidAt(i - 1, j)) g.fillRect(X, Y, 1, T);
+        if (!solidAt(i + 1, j)) g.fillRect(X + T - 1, Y, 1, T);
+        if (!solidAt(i, j + 1)) g.fillRect(X, Y + T - 1, T, 1);
+      }
+    }
+    // the rune stone at the goal
+    return { canvas: c, x0: x0 * T, y0: y0 * T };
+  }
+
+  /* ---------- helpers ---------- */
+  function playerCenter() { const p = G.player; return { x: p.posX + p.width / 2, y: p.posY + p.height / 2 }; }
+  function levelBoundsPx() { const lv = G.level; return { x0: M * T, y0: M * T, x1: (M + lv.w) * T, y1: (M + lv.h) * T }; }
+  function goalRect() { const g = G.level.goal; if (!g) return null; return { x: (g[0] + M) * T - 4, y: (g[1] + M) * T - 3 * T, w: 2 * T + 8, h: 3 * T }; }
+  function rectsOverlap(a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
+  function pieceAt(tx, ty) { if (tx < 0 || ty < 0 || tx >= G.world.maxTilesX || ty >= G.world.maxTilesY) return null; const id = G.world.piece[ty * G.world.maxTilesX + tx]; return id >= 0 ? G.S.byId[id] : null; }
+  const REACH = 5 * SIM.PX_PER_M;   // Valheim Player.m_maxPlaceDistance = 5 m
+
+  function distToRect(px, py, r) { const dx = Math.max(r.x - px, 0, px - (r.x + r.w)); const dy = Math.max(r.y - py, 0, py - (r.y + r.h)); return Math.hypot(dx, dy); }
+
+  // Evaluates the piece under the cursor: placement ghost or removal target.
+  function evaluateGhost() {
+    G.ghost = null;
+    if (G.mode !== 'play' || !G.mouse.inside) return;
+    const wx = G.mouse.wx, wy = G.mouse.wy;
+    const c = playerCenter();
+    const hover = pieceAt(Math.floor(wx / T), Math.floor(wy / T));
+    if (G.removeMode || (hover && G.mouse.wantRemove)) {
+      if (hover && !hover.dead) {
+        const r = { x: hover.tx * T, y: hover.ty * T, w: hover.tw * T, h: hover.th * T };
+        const ok = distToRect(c.x, c.y, r) <= REACH;
+        G.ghost = { remove: true, piece: hover, rect: r, ok, reason: ok ? 'Remove (refund)' : 'Out of reach — 5 m' };
+      }
+      return;
+    }
+    const sh = SIM.SHAPES[G.shape];
+    const tx = Math.floor(wx / T - sh.w / 2 + 0.5), ty = Math.floor(wy / T - sh.h / 2 + 0.5);
+    const r = { x: tx * T, y: ty * T, w: sh.w * T, h: sh.h * T };
+    const lb = levelBoundsPx();
+    const p = G.player;
+    let ok = true, reason = `${SIM.MATERIALS[G.mat].name} ${sh.name.toLowerCase()}`;
+    if (!(G.budget[G.mat] > 0)) { ok = false; reason = `No ${SIM.MATERIALS[G.mat].name.toLowerCase()} left`; }
+    else if (r.x < lb.x0 || r.x + r.w > lb.x1 || r.y < lb.y0 - 6 * T || r.y + r.h > lb.y1) { ok = false; reason = 'Outside the world'; }
+    else if (distToRect(c.x, c.y, r) > REACH) { ok = false; reason = 'Out of reach — 5 m'; }
+    else if (!SIM.canPlace(G.S, G.shape, tx, ty)) { ok = false; reason = 'Blocked'; }
+    else if (rectsOverlap(r, { x: p.posX, y: p.posY, w: p.width, h: p.height })) { ok = false; reason = 'You are in the way'; }
+    G.ghost = { remove: false, tx, ty, rect: r, ok, reason, hover };
+  }
+
+  function tryPlace() {
+    evaluateGhost();
+    const gh = G.ghost;
+    if (!gh) return;
+    if (gh.remove) return tryRemove();
+    if (!gh.ok) { Audio.fx('deny'); toast(gh.reason, 1400); return; }
+    G.queue.push({ op: 'place', mat: G.mat, shape: G.shape, tx: gh.tx, ty: gh.ty });
+  }
+  function tryRemove() {
+    const save = G.mouse.wantRemove; G.mouse.wantRemove = true;
+    evaluateGhost();
+    G.mouse.wantRemove = save;
+    const gh = G.ghost;
+    if (!gh || !gh.remove) return;
+    if (!gh.ok) { Audio.fx('deny'); toast(gh.reason, 1400); return; }
+    G.queue.push({ op: 'remove', id: gh.piece.id });
+  }
+
+  /* ---------- one simulation frame (60 Hz) ---------- */
+  function step() {
+    const p = G.player, S = G.S;
+    // queued build actions apply at the start of the frame
+    for (const a of G.queue) {
+      if (a.op === 'place') {
+        const r = { x: a.tx * T, y: a.ty * T, w: SIM.SHAPES[a.shape].w * T, h: SIM.SHAPES[a.shape].h * T };
+        if (G.budget[a.mat] > 0 && SIM.canPlace(S, a.shape, a.tx, a.ty) && !rectsOverlap(r, { x: p.posX, y: p.posY, w: p.width, h: p.height })) {
+          SIM.placePiece(S, a.mat, a.shape, a.tx, a.ty);
+          G.budget[a.mat]--;
+          Audio.fx('place', a.mat);
+          dust(r.x + r.w / 2, r.y + r.h, 6, MAT_COLORS[a.mat].light, 0.8);
+        }
+      } else {
+        const pc = S.byId[a.id];
+        if (pc && !pc.dead && !pc.removed) {
+          SIM.destroyPiece(S, pc, 'remove');
+          G.budget[pc.mat]++;
+          Audio.fx('remove');
+          debris(pc, 0.35);
+        }
+      }
+    }
+    if (G.queue.length) { G.queue.length = 0; updateSlots(); }
+
+    const k = G.keys, th = G.touchHeld;
+    const controls = {
+      left: k.has('KeyA') || k.has('ArrowLeft') || th.left,
+      right: k.has('KeyD') || k.has('ArrowRight') || th.right,
+      jump: k.has('Space') || k.has('KeyW') || k.has('ArrowUp') || th.jump,
+      down: k.has('KeyS') || k.has('ArrowDown') || th.down,
+      up: false,
+    };
+    G.prev.x = p.posX; G.prev.y = p.posY;
+    const vyBefore = p.velY;
+    S.events.length = 0;
+    SIM.frameTick(S, p, controls);
+    G.frames++;
+
+    if (p.justJumped) Audio.fx('jump');
+    if (vyBefore > 3 && p.velY === 0) { Audio.fx('land', vyBefore); dust(p.posX + p.width / 2, p.posY + p.height, Math.round(vyBefore), '#c9b79c', 0.6); }
+    if (p.lastFallDamage > 0) {
+      popup(`-${p.lastFallDamage}`, p.posX + p.width / 2, p.posY - 6, '#ff5d6c');
+      Audio.fx('hurt'); flash(); G.shake = Math.max(G.shake, 6);
+      updateHearts();
+    }
+    let collapsed = 0;
+    for (const e of S.events) {
+      if (e.type === 'collapse') {
+        collapsed++; G.lost++;
+        G.budget[e.piece.mat]++;          // Valheim drops a broken piece's resources
+        debris(e.piece, 1);
+        Audio.fx('collapse', e.piece.mat);
+      }
+    }
+    if (collapsed) { G.shake = Math.max(G.shake, Math.min(10, 3 + collapsed * 2)); updateSlots(); }
+    // creak when something drops near its limit
+    if (G.frames - G.lastCreak > 25) {
+      for (const pc of S.list) {
+        const v = SIM.supportColorValue(pc);
+        if (v >= 0 && v < 0.12 && pc.bornFrame < G.frames - 2 && pc.lastCreakFrame !== pc.support) { pc.lastCreakFrame = pc.support; Audio.fx('creak'); G.lastCreak = G.frames; break; }
+      }
+    }
+    if (p.dead) { if (!G.deathPending) onDeath(); return; }
+    const gr = goalRect();
+    if (gr && !G.won && rectsOverlap(gr, { x: p.posX, y: p.posY, w: p.width, h: p.height })) onWin();
+  }
+
+  function onWin() {
+    G.won = true;
+    const lv = G.level;
+    const secs = G.frames / 60;
+    const best = completed[lv.id];
+    completed[lv.id] = { time: best ? Math.min(best.time, secs) : secs };
+    store.set('completed', completed);
+    $('#win-time').textContent = fmtTime(secs);
+    $('#win-pieces').textContent = String(G.S.list.length);
+    $('#win-lost').textContent = String(G.lost);
+    const next = LEVELS[G.levelIndex + 1];
+    $('#win-text').textContent = next ? `Next: ${next.name}` : 'That was the last crossing.';
+    $('#dlg-win [data-act="next"]').textContent = next ? 'Next level' : 'Back to levels';
+    Audio.fx('win');
+    burst(playerCenter().x, playerCenter().y, 40);
+    setMode('win');
+  }
+  function onDeath() {
+    G.deathPending = true;
+    const p = G.player;
+    const tiles = p.lastFallDamage > 0 ? p.lastFallDamage / 10 + 25 : null;
+    $('#dead-text').textContent = tiles ? `A fall of ${tiles} tiles. Terraria starts hurting after 25.` : 'The world swallowed you.';
+    updateHearts();
+    setTimeout(() => { G.deathPending = false; if (G.player && G.player.dead && G.mode === 'play') setMode('dead'); }, 600);
+  }
+  function fmtTime(s) { const m = Math.floor(s / 60), r = Math.floor(s % 60); return `${m}:${String(r).padStart(2, '0')}`; }
+
+  /* ---------- particles ---------- */
+  function dust(x, y, n, color, spread) {
+    const count = reduceMotion ? Math.ceil(n / 3) : n;
+    for (let i = 0; i < count; i++) G.particles.push({ x: x + (Math.random() - 0.5) * 16, y, vx: (Math.random() - 0.5) * 2 * spread, vy: -Math.random() * 1.2, g: 0.04, life: 30 + Math.random() * 20, max: 50, size: 2, color, rot: 0, vr: 0, fade: true });
+  }
+  function debris(pc, strength) {
+    const col = MAT_COLORS[pc.mat];
+    const n = Math.round(pc.tw * pc.th * (reduceMotion ? 2 : 6) * strength);
+    for (let i = 0; i < n; i++) {
+      const x = (pc.tx + Math.random() * pc.tw) * T, y = (pc.ty + Math.random() * pc.th) * T;
+      G.particles.push({ x, y, vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 3 * strength, g: 0.25, life: 70 + Math.random() * 40, max: 110, size: 2 + Math.floor(Math.random() * 4), color: [col.base, col.light, col.dark][i % 3], rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.3, fade: false, solid: true });
+    }
+    dust((pc.tx + pc.tw / 2) * T, (pc.ty + pc.th) * T, 10, '#cdbfa8', 1.4);
+  }
+  function burst(x, y, n) {
+    for (let i = 0; i < (reduceMotion ? 10 : n); i++) {
+      const a = Math.random() * Math.PI * 2, s = 1 + Math.random() * 3;
+      G.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1, g: 0.02, life: 60 + Math.random() * 40, max: 100, size: 2, color: Math.random() < 0.5 ? '#5cf2b0' : '#9cc9ff', rot: 0, vr: 0, fade: true, glow: true });
+    }
+  }
+  function popup(text, x, y, color) { G.popups.push({ text, x, y, life: 70, color }); }
+  function updateParticles() {
+    const w = G.world;
+    for (let i = G.particles.length - 1; i >= 0; i--) {
+      const q = G.particles[i];
+      q.vy += q.g; q.x += q.vx; q.y += q.vy; q.rot += q.vr; q.life--;
+      if (q.solid && SIM.solid(w, Math.floor(q.x / T), Math.floor(q.y / T))) { q.y -= q.vy; q.vy *= -0.3; q.vx *= 0.6; q.vr *= 0.5; }
+      if (q.life <= 0) G.particles.splice(i, 1);
+    }
+    for (let i = G.popups.length - 1; i >= 0; i--) { const q = G.popups[i]; q.y -= 0.5; q.life--; if (q.life <= 0) G.popups.splice(i, 1); }
+    if (G.particles.length > 900) G.particles.splice(0, G.particles.length - 900);
+  }
+
+  /* ======================================================================
+     RENDER
+     ====================================================================== */
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    // a hidden or collapsed window can report 0 x 0; keep every canvas at least 1 px
+    const W = Math.max(1, Math.floor(innerWidth * dpr)), H = Math.max(1, Math.floor(innerHeight * dpr));
+    canvas.width = W; canvas.height = H;
+    zoom = Math.max(1, Math.round(H / 380));
+    if (W / zoom < 300) zoom = Math.max(1, Math.floor(W / 300));
+    bufW = Math.max(1, Math.ceil(W / zoom)); bufH = Math.max(1, Math.ceil(H / zoom));
+    buf.width = bufW; buf.height = bufH;
+    ctx.imageSmoothingEnabled = false; bctx.imageSmoothingEnabled = false;
+  }
+  window.addEventListener('resize', resize);
+
+  function render(alpha, now) {
+    if (canvas.width !== Math.max(1, Math.floor(innerWidth * Math.min(window.devicePixelRatio || 1, 3)))) resize();
+    const g = bctx, W = bufW, H = bufH;
+    const t = now / 1000;
+    // ---- camera ----
+    let camX = 0, camY = 0;
+    if (G.level) {
+      const p = G.player;
+      const px = lerp(G.prev.x, p.posX, alpha) + p.width / 2, py = lerp(G.prev.y, p.posY, alpha) + p.height / 2;
+      const lb = levelBoundsPx();
+      G.cam.tx = lb.x1 - lb.x0 <= W ? (lb.x0 + lb.x1) / 2 : clamp(px, lb.x0 + W / 2, lb.x1 - W / 2);
+      G.cam.ty = clamp(py - H * 0.08, lb.y0 - 14 * T + H / 2, Math.max(lb.y0 - 14 * T + H / 2, lb.y1 - H / 2));
+      const k = G.mode === 'play' ? 0.14 : 0.06;
+      G.cam.x += (G.cam.tx - G.cam.x) * k; G.cam.y += (G.cam.ty - G.cam.y) * k;
+      camX = Math.round(G.cam.x - W / 2); camY = Math.round(G.cam.y - H / 2);
+      if (G.shake > 0 && !reduceMotion) { camX += Math.round((Math.random() - 0.5) * G.shake); camY += Math.round((Math.random() - 0.5) * G.shake); }
+      G.shake *= 0.86; if (G.shake < 0.3) G.shake = 0;
+    } else {
+      camX = Math.round(t * 18); camY = 0;
+    }
+    // ---- sky ----
+    const sky = g.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#070b1e'); sky.addColorStop(0.45, '#14204a'); sky.addColorStop(0.78, '#3a3f6e'); sky.addColorStop(1, '#6b5a7e');
+    g.fillStyle = sky; g.fillRect(0, 0, W, H);
+    // stars
+    for (const s of STARS) {
+      const x = ((s.x * 1400 - camX * 0.03) % W + W) % W, y = s.y * H * 0.8;
+      const tw = reduceMotion ? 0.7 : 0.45 + 0.55 * Math.sin(t * 1.6 + s.t);
+      g.fillStyle = `rgba(230,240,255,${(0.25 + s.s * 0.6) * tw})`;
+      g.fillRect(Math.floor(x), Math.floor(y), s.s > 0.92 ? 2 : 1, s.s > 0.92 ? 2 : 1);
+    }
+    // aurora ribbons
+    g.globalCompositeOperation = 'lighter';
+    const at = reduceMotion ? 0 : t;
+    for (let r = 0; r < 2; r++) {
+      const baseY = H * (0.16 + r * 0.1), hue = r ? [156, 140, 255] : [92, 242, 176];
+      for (let x = 0; x < W; x += 2) {
+        const wx = x + camX * (0.05 + r * 0.02);
+        const y = baseY + Math.sin(wx * 0.012 + at * 0.35 + r) * 14 + Math.sin(wx * 0.031 - at * 0.6) * 6;
+        const h = 26 + Math.sin(wx * 0.02 + at * 0.8 + r * 2) * 14;
+        const a = 0.05 + 0.05 * Math.sin(wx * 0.017 + at * 0.5 + r * 3);
+        if (a <= 0) continue;
+        const grd = g.createLinearGradient(0, y - h, 0, y + 6);
+        grd.addColorStop(0, `rgba(${hue[0]},${hue[1]},${hue[2]},0)`);
+        grd.addColorStop(0.75, `rgba(${hue[0]},${hue[1]},${hue[2]},${a})`);
+        grd.addColorStop(1, `rgba(${hue[0]},${hue[1]},${hue[2]},0)`);
+        g.fillStyle = grd; g.fillRect(x, y - h, 2, h + 6);
+      }
+    }
+    g.globalCompositeOperation = 'source-over';
+    // mountains
+    for (const R of RIDGES) {
+      g.fillStyle = R.col;
+      const off = camX * R.par, yoff = camY * R.par * 0.4;
+      for (let x = 0; x < W; x++) {
+        const i = ((Math.floor(x + off) % 2048) + 2048) % 2048;
+        const top = Math.floor(H * (R.base - R.data[i] * R.amp) - yoff * 0.2);
+        g.fillRect(x, top, 1, H - top);
+        if (R.cap && R.data[i] > 0.6) { g.fillStyle = R.cap; g.fillRect(x, top, 1, Math.max(1, Math.floor((R.data[i] - 0.6) * 60))); g.fillStyle = R.col; }
+      }
+    }
+    // mist
+    const mist = g.createLinearGradient(0, H * 0.55, 0, H);
+    mist.addColorStop(0, 'rgba(120,130,190,0)'); mist.addColorStop(1, 'rgba(120,130,190,0.16)');
+    g.fillStyle = mist; g.fillRect(0, H * 0.55, W, H * 0.45);
+
+    if (!G.level) { blit(); return; }
+
+    // ---- terrain ----
+    const tex = G.terrainTex;
+    g.drawImage(tex.canvas, tex.x0 - camX, tex.y0 - camY);
+
+    // ---- goal ----
+    const gr = goalRect();
+    if (gr) drawGoal(g, gr, camX, camY, t);
+
+    // ---- pieces ----
+    const showAll = G.supportView;
+    const hoverId = G.ghost && G.ghost.hover ? G.ghost.hover.id : (G.ghost && G.ghost.remove ? G.ghost.piece.id : -1);
+    for (const pc of G.S.list) {
+      const x = pc.tx * T - camX, y = pc.ty * T - camY;
+      if (x > W || y > H || x + pc.tw * T < 0 || y + pc.th * T < 0) continue;
+      let jx = 0;
+      const v = SIM.supportColorValue(pc);
+      if (!reduceMotion && v >= 0 && v < 0.12) jx = Math.round(Math.sin(t * 40 + pc.id) * 0.6);
+      g.drawImage(pieceSprite(pc.mat, pc.shape), x + jx, y);
+      if (showAll || pc.id === hoverId) {
+        const [r, gg, b] = SIM.supportColor(pc).map(c => Math.round(clamp(c, 0, 1) * 255));
+        g.fillStyle = `rgba(${r},${gg},${b},${showAll ? 0.58 : 0.62})`;
+        g.fillRect(x + jx, y, pc.tw * T, pc.th * T);
+        g.fillStyle = `rgba(${r},${gg},${b},0.95)`;
+        g.fillRect(x + jx, y, pc.tw * T, 1);
+      }
+    }
+
+    // ---- ghost + reach ----
+    if (G.mode === 'play' && G.ghost) drawGhost(g, camX, camY, t);
+
+    // ---- player ----
+    drawPlayer(g, alpha, camX, camY);
+
+    // ---- particles ----
+    for (const q of G.particles) {
+      const a = q.fade ? clamp(q.life / q.max, 0, 1) : clamp(q.life / 20, 0, 1);
+      g.globalAlpha = a;
+      if (q.glow) g.globalCompositeOperation = 'lighter';
+      g.fillStyle = q.color;
+      if (q.rot && q.size > 2) {
+        g.save(); g.translate(Math.round(q.x - camX), Math.round(q.y - camY)); g.rotate(q.rot); g.fillRect(-q.size / 2, -q.size / 2, q.size, q.size); g.restore();
+      } else g.fillRect(Math.round(q.x - camX), Math.round(q.y - camY), q.size, q.size);
+      g.globalCompositeOperation = 'source-over';
+    }
+    g.globalAlpha = 1;
+    for (const q of G.popups) {
+      g.globalAlpha = clamp(q.life / 30, 0, 1);
+      g.font = '700 10px "Space Mono", monospace'; g.textAlign = 'center';
+      g.fillStyle = '#000'; g.fillText(q.text, Math.round(q.x - camX) + 1, Math.round(q.y - camY) + 1);
+      g.fillStyle = q.color; g.fillText(q.text, Math.round(q.x - camX), Math.round(q.y - camY));
+    }
+    g.globalAlpha = 1;
+    blit();
+  }
+  function blit() { ctx.drawImage(buf, 0, 0, bufW * zoom, bufH * zoom); }
+
+  function drawGoal(g, r, camX, camY, t) {
+    const x = r.x + 4 - camX, y = r.y - camY, w = r.w - 8, h = r.h;
+    // light shaft
+    const pulse = reduceMotion ? 0.6 : 0.5 + 0.5 * Math.sin(t * 2.2);
+    const shaft = g.createLinearGradient(0, y - 120, 0, y + h);
+    shaft.addColorStop(0, 'rgba(92,242,176,0)'); shaft.addColorStop(1, `rgba(92,242,176,${0.12 + pulse * 0.1})`);
+    g.globalCompositeOperation = 'lighter';
+    g.fillStyle = shaft; g.fillRect(x + 4, y - 120, w - 8, h + 120);
+    g.globalCompositeOperation = 'source-over';
+    // standing stone
+    g.fillStyle = '#4b5266'; g.fillRect(x + 3, y + 4, w - 6, h - 4);
+    g.fillStyle = '#5e667c'; g.fillRect(x + 5, y + 2, w - 10, h - 2);
+    g.fillStyle = '#6e7790'; g.fillRect(x + 5, y + 2, w - 10, 2);
+    g.fillStyle = '#353b4c'; g.fillRect(x + w - 6, y + 4, 2, h - 4);
+    // runes
+    g.fillStyle = `rgba(110,255,200,${0.55 + pulse * 0.45})`;
+    const runes = [[0, 0, 1, 7], [0, 0, 4, 1], [3, 0, 1, 3], [0, 3, 4, 1], [6, 2, 1, 8], [6, 2, 3, 1], [8, 2, 1, 4], [0, 12, 1, 8], [0, 15, 4, 1], [3, 12, 1, 8], [6, 14, 4, 1], [7, 12, 1, 8]];
+    for (const [rx, ry, rw, rh] of runes) g.fillRect(x + 11 + rx, y + 10 + ry, rw, rh);
+    if (!reduceMotion && Math.random() < 0.25) G.particles.push({ x: r.x + 6 + Math.random() * (r.w - 12), y: r.y + r.h - 4, vx: 0, vy: -0.4 - Math.random() * 0.6, g: -0.005, life: 70, max: 70, size: 1, color: '#7dffd0', rot: 0, vr: 0, fade: true, glow: true });
+  }
+
+  function drawGhost(g, camX, camY, t) {
+    const gh = G.ghost, c = playerCenter();
+    // reach ring (Valheim 5 m)
+    g.strokeStyle = 'rgba(160,200,255,0.22)'; g.lineWidth = 1;
+    g.setLineDash([3, 4]); g.beginPath(); g.arc(Math.round(c.x - camX), Math.round(c.y - camY), REACH, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+    const r = gh.rect, x = r.x - camX, y = r.y - camY;
+    const blink = reduceMotion ? 1 : 0.75 + 0.25 * Math.sin(t * 8);
+    if (gh.remove) {
+      g.fillStyle = `rgba(255,93,108,${0.28 * blink})`; g.fillRect(x, y, r.w, r.h);
+      g.strokeStyle = gh.ok ? '#ff5d6c' : 'rgba(255,93,108,0.5)'; g.strokeRect(x + 0.5, y + 0.5, r.w - 1, r.h - 1);
+      return;
+    }
+    g.globalAlpha = gh.ok ? 0.62 : 0.3;
+    g.drawImage(pieceSprite(G.mat, G.shape), x, y);
+    g.globalAlpha = 1;
+    g.strokeStyle = gh.ok ? `rgba(92,242,176,${blink})` : 'rgba(255,93,108,0.9)';
+    g.strokeRect(x + 0.5, y + 0.5, r.w - 1, r.h - 1);
+  }
+
+  function drawPlayer(g, alpha, camX, camY) {
+    const p = G.player;
+    if (p.dead) return;
+    const x = lerp(G.prev.x, p.posX, alpha), y = lerp(G.prev.y, p.posY, alpha) + p.gfxOffY;
+    let kind = 'idle';
+    if (p.velY < 0) kind = 'jump'; else if (p.velY > 1.2) kind = 'fall'; else if (Math.abs(p.velX) > 0.1) kind = 'run';
+    const spr = playerFrame(kind, kind === 'run' ? G.animFrame : 0, p.direction);
+    g.drawImage(spr, Math.round(x - 4 - camX), Math.round(y - 6 - camY));
+  }
+
+  /* ======================================================================
+     HUD
+     ====================================================================== */
+  function buildHud() {
+    const lv = G.level;
+    $('#hud-eyebrow').textContent = lv.id === 'freebuild' ? 'Sandbox' : `Level ${G.levelIndex + 1} of ${LEVELS.length - 1}`;
+    $('#hud-name').textContent = lv.name;
+    $('#hud-brief').textContent = lv.brief;
+    const ms = $('#mat-slots'); ms.textContent = '';
+    MAT_ORDER.forEach((k, i) => {
+      const b = document.createElement('button');
+      b.className = 'slot'; b.dataset.mat = k; b.type = 'button';
+      b.innerHTML = `<span class="key">${i + 1}</span><span class="swatch" style="background:${MAT_COLORS[k].base}"></span><span class="label">${SIM.MATERIALS[k].name}</span><span class="count"></span>`;
+      b.addEventListener('click', () => { selectMat(k); });
+      ms.appendChild(b);
+    });
+    const ss = $('#shape-slots'); ss.textContent = '';
+    SHAPE_ORDER.forEach((k, i) => {
+      const sh = SIM.SHAPES[k];
+      const b = document.createElement('button');
+      b.className = 'slot'; b.dataset.shape = k; b.type = 'button';
+      b.innerHTML = `<span class="key">${['Q', 'E', ''][i] || ''}</span><span class="shape-icon" style="width:${sh.w * 7}px;height:${sh.h * 7}px"></span><span class="label">${sh.name}</span>`;
+      b.setAttribute('aria-label', `${sh.name} shape`);
+      b.addEventListener('click', () => { G.shape = k; updateSlots(); });
+      ss.appendChild(b);
+    });
+    $('#btn-support').setAttribute('aria-pressed', String(G.supportView));
+    $('#legend').classList.toggle('on', G.supportView);
+    updateSlots();
+  }
+  function selectMat(k) { if (G.budget[k] > 0 || G.budget[k] === Infinity) { G.mat = k; updateSlots(); } else { Audio.fx('deny'); toast(`No ${SIM.MATERIALS[k].name.toLowerCase()} in this level`, 1400); } }
+  function updateSlots() {
+    document.querySelectorAll('#mat-slots .slot').forEach(b => {
+      const k = b.dataset.mat, n = G.budget[k];
+      b.querySelector('.count').textContent = n === Infinity ? '∞' : String(n);
+      const avail = (G.level.budget[k] || 0) > 0;
+      b.disabled = !avail;
+      b.setAttribute('aria-pressed', String(G.mat === k));
+      b.setAttribute('aria-label', `${SIM.MATERIALS[k].name}, ${n === Infinity ? 'unlimited' : n + ' left'}`);
+    });
+    document.querySelectorAll('#shape-slots .slot').forEach(b => b.setAttribute('aria-pressed', String(G.shape === b.dataset.shape)));
+  }
+  const heartCache = {};
+  function updateHearts() {
+    const life = G.player ? G.player.statLife : 100;
+    const el = $('#hearts');
+    el.textContent = '';
+    for (let i = 0; i < 5; i++) {
+      const fill = clamp((life - i * 20) / 20, 0, 1);
+      const key = Math.round(fill * 7);
+      heartCache[key] = heartCache[key] || heartDataURL(key / 7);
+      const img = document.createElement('img'); img.className = 'heart'; img.alt = ''; img.src = heartCache[key];
+      el.appendChild(img);
+    }
+    el.setAttribute('aria-label', `Life ${life} of 100`);
+  }
+  let toastTimer = 0;
+  function toast(msg, ms) { const el = $('#toast'); el.textContent = msg; el.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('on'), ms || 2000); }
+  function flash() { if (reduceMotion) return; const el = $('#flash'); el.classList.add('on'); requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('on'))); }
+
+  function renderLevelGrid() {
+    const grid = $('#level-grid'); grid.textContent = '';
+    LEVELS.forEach((lv, i) => {
+      const b = document.createElement('button');
+      b.className = 'card'; b.type = 'button';
+      const done = completed[lv.id];
+      const mats = MAT_ORDER.filter(k => (lv.budget[k] || 0) > 0).map(k => `<span class="swatch" title="${SIM.MATERIALS[k].name}" style="background:${MAT_COLORS[k].base}"></span>`).join('');
+      b.innerHTML = `<span class="num">${lv.id === 'freebuild' ? 'SANDBOX' : 'LEVEL ' + (i + 1)}</span><h3>${lv.name}</h3><p>${lv.brief}</p><span class="mats">${mats}${done ? `<span class="done">&nbsp;✓ ${fmtTime(done.time)}</span>` : ''}</span>`;
+      b.addEventListener('click', () => { Audio.unlock(); startLevel(i); });
+      grid.appendChild(b);
+    });
+  }
+
+  /* ======================================================================
+     INPUT
+     ====================================================================== */
+  const GAME_KEYS = new Set(['KeyA', 'KeyD', 'KeyW', 'KeyS', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'Tab']);
+  window.addEventListener('keydown', e => {
+    Audio.unlock();
+    if (G.mode === 'play') {
+      if (GAME_KEYS.has(e.code)) e.preventDefault();
+      G.keys.add(e.code);
+      if (e.repeat) return;
+      if (e.code.startsWith('Digit')) { const n = +e.code.slice(5) - 1; if (MAT_ORDER[n]) selectMat(MAT_ORDER[n]); }
+      else if (e.code === 'KeyQ') cycleShape(-1);
+      else if (e.code === 'KeyE') cycleShape(1);
+      else if (e.code === 'Tab') toggleSupport();
+      else if (e.code === 'KeyR') startLevel(G.levelIndex);
+      else if (e.code === 'KeyM') toggleSound();
+      else if (e.code === 'Escape' || e.code === 'KeyP') setMode('pause');
+    } else if (G.mode === 'pause' && (e.code === 'Escape' || e.code === 'KeyP')) { e.preventDefault(); setMode('play'); }
+    else if (G.mode === 'dead' && e.code === 'KeyR') startLevel(G.levelIndex);
+    else if (G.mode === 'about' && e.code === 'Escape') setMode('menu');
+  });
+  window.addEventListener('keyup', e => { G.keys.delete(e.code); });
+  window.addEventListener('blur', () => { G.keys.clear(); for (const k in G.touchHeld) G.touchHeld[k] = false; if (G.mode === 'play') setMode('pause'); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && G.mode === 'play') setMode('pause'); });
+
+  function cycleShape(d) { const i = SHAPE_ORDER.indexOf(G.shape); G.shape = SHAPE_ORDER[(i + d + SHAPE_ORDER.length) % SHAPE_ORDER.length]; updateSlots(); }
+  function toggleSupport() { G.supportView = !G.supportView; store.set('supportView', G.supportView); $('#btn-support').setAttribute('aria-pressed', String(G.supportView)); $('#legend').classList.toggle('on', G.supportView); }
+  function toggleSound() { const on = Audio.toggle(); $('#btn-sound').setAttribute('aria-pressed', String(on)); toast(on ? 'Sound on' : 'Sound off', 1000); }
+
+  function updateMouse(clientX, clientY) {
+    const dpr = canvas.width / innerWidth;
+    G.mouse.x = clientX; G.mouse.y = clientY; G.mouse.inside = true;
+    G.mouse.wx = Math.round(G.cam.x - bufW / 2) + (clientX * dpr) / zoom;
+    G.mouse.wy = Math.round(G.cam.y - bufH / 2) + (clientY * dpr) / zoom;
+  }
+  canvas.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') updateMouse(e.clientX, e.clientY); });
+  canvas.addEventListener('pointerleave', () => { G.mouse.inside = false; });
+  canvas.addEventListener('pointerdown', e => {
+    Audio.unlock();
+    if (G.mode !== 'play') return;
+    updateMouse(e.clientX, e.clientY);
+    if (e.button === 2) tryRemove();
+    else if (e.button === 0) { if (G.removeMode) tryRemove(); else tryPlace(); }
+    if (e.pointerType !== 'mouse') setTimeout(() => { G.mouse.inside = false; }, 450);
+  });
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  canvas.addEventListener('wheel', e => { if (G.mode === 'play') { e.preventDefault(); cycleShape(e.deltaY > 0 ? 1 : -1); } }, { passive: false });
+
+  document.querySelectorAll('[data-hold]').forEach(b => {
+    const k = b.dataset.hold;
+    const on = e => { e.preventDefault(); Audio.unlock(); G.touchHeld[k] = true; b.classList.add('held'); try { b.setPointerCapture(e.pointerId); } catch (_) { /* not capturable */ } };
+    const off = () => { G.touchHeld[k] = false; b.classList.remove('held'); };
+    b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('lostpointercapture', off);
+  });
+  $('#touch-remove').addEventListener('click', () => { G.removeMode = !G.removeMode; $('#touch-remove').setAttribute('aria-pressed', String(G.removeMode)); toast(G.removeMode ? 'Tap a piece to remove it' : 'Tap to place', 1400); });
+
+  $('#btn-support').addEventListener('click', toggleSupport);
+  $('#btn-sound').addEventListener('click', toggleSound);
+  $('#btn-sound').setAttribute('aria-pressed', String(Audio.enabled));
+  $('#btn-restart').addEventListener('click', () => startLevel(G.levelIndex));
+  $('#btn-menu').addEventListener('click', () => setMode('pause'));
+  $('#btn-about').addEventListener('click', () => setMode('about'));
+  $('#about-back').addEventListener('click', () => setMode('menu'));
+  document.querySelectorAll('.dialog [data-act]').forEach(b => b.addEventListener('click', () => {
+    const a = b.dataset.act;
+    if (a === 'resume') setMode('play');
+    else if (a === 'restart') startLevel(G.levelIndex);
+    else if (a === 'levels') { G.level = null; setMode('menu'); }
+    else if (a === 'respawn') { startLevel(G.levelIndex, true); }
+    else if (a === 'stay') setMode('play');
+    else if (a === 'next') { if (LEVELS[G.levelIndex + 1]) startLevel(G.levelIndex + 1); else { G.level = null; setMode('menu'); } }
+  }));
+
+  /* ======================================================================
+     LOOP — fixed 60 Hz simulation, interpolated rendering
+     ====================================================================== */
+  let last = performance.now(), acc = 0;
+  function loop(now) {
+    requestAnimationFrame(loop);
+    const dt = Math.min(0.25, (now - last) / 1000);
+    last = now;
+    if (G.mode === 'play' || G.mode === 'win' || G.mode === 'dead') {
+      acc += dt;
+      while (acc >= 1 / 60) {
+        if (G.mode === 'play') {
+          if (G.mouse.inside) updateMouse(G.mouse.x, G.mouse.y);
+          step();
+        }
+        updateParticles();
+        const p = G.player;
+        if (p && Math.abs(p.velX) > 0.1 && p.velY === 0) { G.animCounter += Math.abs(p.velX) * 1.3; if (G.animCounter > 8) { G.animCounter = 0; G.animFrame = (G.animFrame + 1) % 4; } }
+        acc -= 1 / 60;
+      }
+    } else acc = 0;
+    if (G.mode === 'play') {
+      evaluateGhost();
+      const note = $('#cursor-note');
+      if (G.ghost && G.mouse.inside) {
+        note.style.display = 'block'; note.textContent = G.ghost.reason; note.classList.toggle('bad', !G.ghost.ok);
+        note.style.left = G.mouse.x + 'px'; note.style.top = G.mouse.y + 'px';
+      } else note.style.display = 'none';
+    }
+    render(G.mode === 'play' ? acc * 60 : 1, now);
+  }
+
+  // ?debug exposes state to automated browser tests; it changes nothing else
+  if (new URLSearchParams(location.search).has('debug')) {
+    window.__terraheim = {
+      G, SIM, LEVELS,
+      worldToClient(wx, wy) {
+        const dpr = canvas.width / innerWidth;
+        return { x: (wx - Math.round(G.cam.x - bufW / 2)) * zoom / dpr, y: (wy - Math.round(G.cam.y - bufH / 2)) * zoom / dpr };
+      },
+    };
+  }
+
+  resize();
+  renderLevelGrid();
+  requestAnimationFrame(loop);
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => $('#loading').classList.add('done'));
+  setTimeout(() => $('#loading').classList.add('done'), 1500);
+})();
+</script>
+</body>
+</html>
