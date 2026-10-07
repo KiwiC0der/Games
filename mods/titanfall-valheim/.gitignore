@@ -13,3 +13,11 @@ local.props
 *.wav
 *.dds
 *.set
+
+# python bytecode
+__pycache__/
+*.pyc
+# exported runtime assets (made from the user's own Titanfall 2 install)
+*.phm
+*.phm2
+*.pha

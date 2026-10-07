@@ -45,6 +45,7 @@ namespace PilotHeim.Titan
         private Character aiTarget;
         private Transform cockpit, chestGun;
         private TitanVisual visual;
+        public TitanVisual Visual => visual;
         private LineRenderer beacon;
         private Vector3 inMove, inLook = Vector3.forward;
         private bool inRun, dashQueued;

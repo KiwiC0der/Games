@@ -441,6 +441,13 @@ namespace PilotHeim
             Line($"   titanfall: landing hits {titan.LastLandingHits}, troll hp {vhp:0} -> {(vch != null && vch.m_nview.IsValid() ? vch.GetHealth().ToString("0") : "dead")}");
             Check("titan health = segments + doomed", titan.Body.GetHealth(), titan.MaxHealth, 0.001f);
             Check("titan shield", titan.Shield, tt.HealthShield, 0f);
+            bool assets = System.IO.File.Exists(System.IO.Path.Combine(PilotHeim.Assets.AssetLibrary.Dir ?? "", "bt.phm2"));
+            Line($"   assets: {PilotHeim.Assets.AssetLibrary.Status}; textures {PilotHeim.Assets.TfMaterials.TexturesLoaded}, missing {PilotHeim.Assets.TfMaterials.Missing}");
+            if (assets)
+            {
+                Check("BT is the exported Titanfall model", titan.Visual.RealModel ? 1f : 0f, 1f, 0f);
+                Check("BT textures loaded", PilotHeim.Assets.TfMaterials.TexturesLoaded > 0 && PilotHeim.Assets.TfMaterials.Missing == 0 ? 1f : 0f, 1f, 0f);
+            }
             if (victim != null) Destroy(victim);
 
 
@@ -455,7 +462,7 @@ namespace PilotHeim
 
             // drive: walk, sprint, dash
             // drive tests on a flat sky runway: a 3 m Titan cannot walk through a Valheim beech forest
-            Vector3 runway = stand + new Vector3(0f, 250f, 160f);
+            Vector3 runway = stand + new Vector3(0f, 45f, 160f);      // above the beech canopy, below the cloud layer
             {
                 var g = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 g.name = "PilotHeim_TitanRunway"; g.layer = LayerMask.NameToLayer("static_solid");
@@ -475,8 +482,10 @@ namespace PilotHeim
             for (float t0 = 0; t0 < 3f; t0 += Time.fixedDeltaTime) { titan.Drive(fwd, fwd, false); yield return new WaitForFixedUpdate(); }
             Line($"   titan walk: onGround {titan.Motor.OnGround}, normal {titan.Motor.GroundNormal}, dir {fwd}, pos {titan.transform.position}");
             Check("titan walk speed (u/s)", titan.Motor.Vel.magnitude, tt.Speed, 0.05f);
+            if (titan.Visual.RealModel) { Line($"   BT clip while walking: {titan.Visual.Anim.Current} x{titan.Visual.Anim.Rate:0.00}"); Check("BT plays its walk clip", titan.Visual.Anim.Current == "walk_f" ? 1f : 0f, 1f, 0f); }
             for (float t0 = 0; t0 < 4f; t0 += Time.fixedDeltaTime) { titan.Drive(fwd, fwd, true); yield return new WaitForFixedUpdate(); }
             Check("titan sprint speed (u/s)", titan.Motor.Vel.magnitude, tt.SprintSpeed, 0.05f);   // along the ground plane
+            if (titan.Visual.RealModel) { Line($"   BT clip while sprinting: {titan.Visual.Anim.Current} x{titan.Visual.Anim.Rate:0.00}"); Check("BT plays its sprint clip", titan.Visual.Anim.Current == "sprint_f" ? 1f : 0f, 1f, 0f); }
             float powerBefore = titan.Motor.Power;
             var dashField = typeof(PilotHeim.Titan.TitanController).GetField("dashQueued", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Vector3 side = Vector3.Cross(Vector3.up, fwd);
@@ -485,6 +494,7 @@ namespace PilotHeim
             dashField.SetValue(titan, true);
             yield return new WaitForFixedUpdate(); yield return new WaitForFixedUpdate();
             Line($"   dash: horizontal {Speed():0} u/s right after (dodgeSpeed {tt.DodgeSpeed}), power {powerBefore:0} -> {titan.Motor.Power:0}");
+            if (titan.Visual.RealModel) Check("BT plays its dash clip (right)", titan.Visual.Anim.Current == "dash_r" ? 1f : 0f, 1f, 0f);
             Check("titan dash reaches dodgeSpeed", Speed() >= tt.DodgeSpeed * 0.9f ? 1f : 0f, 1f, 0f);
             Check("dash used dodgePowerDrain", powerBefore - titan.Motor.Power, tt.DodgePowerDrain, 0.1f);
             for (float t0 = 0; t0 < 1.5f; t0 += Time.fixedDeltaTime) { titan.Drive(Vector3.zero, fwd, false); yield return new WaitForFixedUpdate(); }
@@ -515,7 +525,7 @@ namespace PilotHeim
 
             // screenshot for visual review: pilot at the Titan's front quarter, open sky behind
             m.Override = input;
-            yield return Teleport(player, titan.transform.position + new Vector3(5f, 0.3f, 9f));
+            yield return Teleport(player, titan.transform.position + titan.transform.forward * 9f + titan.transform.right * 4f + Vector3.up * 0.3f);
             input.Look = (titan.transform.position + Vector3.up * 3f - GameCamera.instance.transform.position).normalized;
             yield return new WaitForSeconds(1.2f);
             string shot = System.IO.Path.Combine(Paths.BepInExRootPath, "PilotHeim_titan.png");
@@ -523,7 +533,8 @@ namespace PilotHeim
             yield return new WaitForSeconds(0.5f);
             Line($"   screenshot: {shot}");
             var chest = titan.transform.Find("PilotHeim_TitanVisual/torso");
-            Check("titan torso stays on the hips (m)", chest != null ? chest.localPosition.y : -1f, tt.HullHeight * PilotTuning.MetersPerUnit * 0.42f, 0.05f);
+            if (!titan.Visual.RealModel)
+                Check("titan torso stays on the hips (m)", chest != null ? chest.localPosition.y : -1f, tt.HullHeight * PilotTuning.MetersPerUnit * 0.42f, 0.05f);
 
             // auto-titan defends: troll near the titan gets shot without input
             Vector3 ap = titan.transform.position + Vector3.forward * 15f; ap.y = runway.y;

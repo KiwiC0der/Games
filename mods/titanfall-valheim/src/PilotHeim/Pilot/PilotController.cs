@@ -180,6 +180,8 @@ namespace PilotHeim.Pilot
                 ? (titanNow.CanEmbark(Player) ? $"Embark - {Plugin.KeyEmbark.Value}" : $"Titan {(titanNow.Following ? "following" : "guarding")} ({Plugin.KeyTitanfall.Value} toggles)")
                 : TitanMeter.Ready ? $"Titan ready - press {Plugin.KeyTitanfall.Value}" : "";
             GUI.Label(new Rect(x, y + 64, w, 20), titanLine);
+            if (PilotHeim.Assets.AssetLibrary.Loading)                              // loading state for the Titanfall models
+                GUI.Label(new Rect(x, y - 20, w, 20), PilotHeim.Assets.AssetLibrary.Status);
             DrawArsenalHud(x, y, w);
         }
 

@@ -1,16 +1,22 @@
+using System.IO;
+using PilotHeim.Assets;
 using PilotHeim.Data;
 using UnityEngine;
 
 namespace PilotHeim.Titan
 {
     /// <summary>
-    /// Stand-in Titan body (BT-7274 proportions and colours) built from primitives
-    /// at the real hull size; replaced by the extracted model in phase 5. Exposes
-    /// the gun muzzle and rocket pod, and animates legs/arms from movement.
+    /// The Titan's body. With assets exported from the user's Titanfall 2 install this is the real
+    /// BT-7274 model with its XO-16 (bone-merged on ja_c_propGun) driven by BT's own locomotion and
+    /// dash clips; otherwise a primitive stand-in at the real hull size. Exposes the gun muzzle and
+    /// rocket pod either way.
     /// </summary>
     public sealed class TitanVisual : MonoBehaviour
     {
         public Transform Muzzle, RocketPod;
+        public bool RealModel { get; private set; }
+        public PhAnimator Anim { get; private set; }
+        private Transform modelRoot;
         private Transform legL, legR, shinL, shinR, torso, armR, armL;
         private float phase, torsoY;
         private static Material baseMat;
@@ -60,6 +66,8 @@ namespace PilotHeim.Titan
 
         public static TitanVisual Build(Transform root, TitanTuning tuning)
         {
+            var real = TryBuildReal(root);
+            if (real != null) return real;
             float h = tuning.HullHeight * PilotTuning.MetersPerUnit;      // ~5.97 m
             float w = tuning.HullRadius * 2f * PilotTuning.MetersPerUnit; // ~3.05 m
             var holder = new GameObject("PilotHeim_TitanVisual").transform;
@@ -103,8 +111,87 @@ namespace PilotHeim.Titan
             return v;
         }
 
+        /// <summary>The exported BT model + XO-16, or null when the assets are missing or fail to build.</summary>
+        private static TitanVisual TryBuildReal(Transform root)
+        {
+            AssetLibrary.Wait();
+            if (AssetLibrary.Titan == null || AssetLibrary.TitanClips == null) return null;
+            try
+            {
+                var holder = new GameObject("PilotHeim_TitanVisual").transform;
+                holder.SetParent(root, false);
+                var v = holder.gameObject.AddComponent<TitanVisual>();
+                var bones = AssetLibrary.Titan.Build(holder, TfMaterials.Get, out _);
+                v.modelRoot = bones[0].parent;
+                v.Anim = holder.gameObject.AddComponent<PhAnimator>();
+                v.Anim.Bones = bones;
+                v.Anim.Clips = AssetLibrary.TitanClips;
+                v.Anim.Play("idle", 0f);
+                Transform Bone(string n) { foreach (var b in bones) if (b.name == n) return b; return null; }
+                v.RocketPod = Bone("def_l_missile_box") ?? holder;
+                // XO-16: Titanfall pins the titan's hand to the gun's r_hand_ik with runtime IK; without IK
+                // we do the inverse and mount the gun so its r_hand_ik frame sits on BT's ja_r_propHand.
+                string gunPath = Path.Combine(AssetLibrary.Dir, "xo16.phm2");
+                var hand = Bone("ja_r_propHand");
+                if (File.Exists(gunPath) && hand != null)
+                {
+                    var gun = PhModel.Load(gunPath);
+                    var gb = gun.Build(hand, TfMaterials.Get, out _);
+                    int grip = System.Array.IndexOf(gun.BoneNames, "r_hand_ik");
+                    var gunRoot = gb[0].parent;
+                    if (grip >= 0)
+                    {
+                        var bp = gun.BindPoses[grip];                 // = inverse of the grip's bind frame
+                        gunRoot.localPosition = bp.GetColumn(3);
+                        gunRoot.localRotation = bp.rotation;
+                    }
+                    foreach (var b in gb) if (b.name == "muzzle_flash") v.Muzzle = b;
+                }
+                if (v.Muzzle == null) v.Muzzle = Bone("ja_r_propHand") ?? holder;
+                foreach (var r in holder.GetComponentsInChildren<Renderer>()) { r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On; r.receiveShadows = true; }
+                v.RealModel = true;
+                Plugin.Log.LogInfo($"BT-7274 model built: {bones.Length} bones, {TfMaterials.TexturesLoaded} textures ({TfMaterials.Missing} missing)");
+                return v;
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogError("BT model failed, using the stand-in: " + e);
+                return null;
+            }
+        }
+
+        /// <summary>Picks BT's clip from the motor (Titanfall-style: idle, walk/run in 4 directions, sprint, dash).</summary>
+        private void AnimateReal(TitanMotor motor)
+        {
+            Vector3 v = new Vector3(motor.Vel.x, 0f, motor.Vel.z);
+            float speed = v.magnitude;                                           // u/s
+            Vector3 local = transform.InverseTransformDirection(v);
+            string dir = Mathf.Abs(local.z) >= Mathf.Abs(local.x) ? (local.z >= 0f ? "f" : "b") : (local.x >= 0f ? "r" : "l");
+            string key;
+            if (motor.Dashing || dashHold > 0f)
+            {
+                if (motor.Dashing && dashHold <= 0f) { dashDir = dir; dashHold = 0.55f; Anim.Play("dash_" + dashDir, 0.08f, true); }
+                dashHold -= Time.deltaTime;
+                Anim.Rate = 1f;
+                return;
+            }
+            if (speed < 25f) key = "idle";
+            else if (motor.Sprinting && dir == "f") key = "sprint_f";
+            else if (speed > 330f) key = "run_" + dir;
+            else key = "walk_" + dir;
+            if (!Anim.Has(key)) key = "idle";
+            Anim.Play(key, 0.25f);
+            var clip = Anim.Clips[key];
+            // match foot speed to ground speed (clip speed from Titanfall's motion tracker)
+            Anim.Rate = clip.SpeedUnits > 1f ? Mathf.Clamp(speed / clip.SpeedUnits, 0.5f, 1.8f) : 1f;
+        }
+
+        private float dashHold;
+        private string dashDir = "f";
+
         public void Animate(TitanMotor motor, float dt)
         {
+            if (RealModel) { AnimateReal(motor); return; }
             float speed = new Vector3(motor.Vel.x, 0f, motor.Vel.z).magnitude;   // u/s
             float stride = Mathf.Clamp01(speed / 280f);
             phase += dt * speed / 55f;
