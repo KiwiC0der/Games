@@ -42,6 +42,9 @@ namespace PilotHeim
         public static ConfigEntry<KeyCode> KeyWeaponToggle;
         public static ConfigEntry<KeyCode> KeyWeaponSwap;
         public static ConfigEntry<KeyCode> KeyReload;
+        public static ConfigEntry<string> TitanClass;
+        public static ConfigEntry<float> TitanBuildTimeScale;
+        public static ConfigEntry<float> TitanCoreChargeSeconds;
 
         public static PlayerSettings Pilot { get; private set; }
         public static string ScriptsDir => Path.Combine(DataDir.Value, "mp_common", "scripts");
@@ -60,7 +63,7 @@ namespace PilotHeim
             KeyTactical = Config.Bind("Controls", "Tactical", KeyCode.Q, "Pilot tactical ability (grapple).");
             KeyOrdnance = Config.Bind("Controls", "Ordnance", KeyCode.G, "Throw ordnance.");
             KeyTitanfall = Config.Bind("Controls", "Titanfall", KeyCode.V, "Call in your Titan when the meter is full.");
-            KeyEmbark = Config.Bind("Controls", "Embark", KeyCode.F, "Embark / disembark your Titan.");
+            KeyEmbark = Config.Bind("Controls", "Embark", KeyCode.E, "Embark / disembark your Titan (Titanfall's Use key).");
             KeyToggleMod = Config.Bind("Controls", "TogglePilot", KeyCode.F8, "Switch between pilot and vanilla Valheim movement.");
             Loadout = Config.Bind("Pilot", "Loadout", "mp_weapon_rspn101,mp_weapon_wingman,mp_weapon_shotgun,mp_weapon_sniper",
                 "Titanfall 2 weapon script names to carry, in swap order (R-201, Wingman, EVA-8, Kraber).");
@@ -72,6 +75,9 @@ namespace PilotHeim
             KeyWeaponToggle = Config.Bind("Controls", "DrawHolsterGun", KeyCode.Z, "Draw / holster the pilot gun (holstered = Valheim weapons and tools).");
             KeyWeaponSwap = Config.Bind("Controls", "SwapGun", KeyCode.X, "Cycle pilot guns.");
             KeyReload = Config.Bind("Controls", "Reload", KeyCode.R, "Reload the pilot gun.");
+            TitanClass = Config.Bind("Titan", "Class", "titan_buddy", "Titan 2 player settings class for your Titan (titan_buddy = BT-7274).");
+            TitanBuildTimeScale = Config.Bind("Titan", "BuildTimeScale", 1f, "Multiplier on titan_build_time (1 = Titanfall's 180 s).");
+            TitanCoreChargeSeconds = Config.Bind("Titan", "CoreChargeSeconds", 90f, "Seconds for the Titan core meter to fill.");
             SelfTest = Config.Bind("Debug", "SelfTest", false, "Load a test world, run scripted movement checks and quit, writing results next to the log.");
 
             try
@@ -82,6 +88,11 @@ namespace PilotHeim
                 var grapple = KeyValues.ParseFile(Path.Combine(ScriptsDir, "weapons", "mp_ability_grapple.txt")).Child("WeaponData");
                 var tuning = new PilotTuning(Pilot, native, grapple);
                 PilotHeim.Pilot.PilotController.Tuning = tuning;
+                var titanSet = PlayerSettings.Load(Path.Combine(ScriptsDir, "players", "mp"), TitanClass.Value);
+                var damageDefs = KeyValues.ParseFile(Path.Combine(ScriptsDir, "damage", "damagedefs.txt")).Child("DamageDefs");
+                var titanTuning = new TitanTuning(titanSet, native, damageDefs, TitanClass.Value);
+                PilotHeim.Titan.TitanController.Tuning = titanTuning;
+                tuning.Report.AddRange(titanTuning.Report);
                 File.WriteAllLines(Path.Combine(Paths.BepInExRootPath, "PilotHeim_tuning.txt"), tuning.Report);
                 Log.LogInfo($"Pilot tuning resolved: {tuning.Report.Count} values (see BepInEx/PilotHeim_tuning.txt)");
             }

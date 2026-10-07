@@ -24,6 +24,8 @@ namespace PilotHeim
         [HarmonyPrefix, HarmonyPatch(typeof(Character), "UpdateWalking")]
         private static bool UpdateWalking(Character __instance, float dt)
         {
+            var titan = PilotHeim.Titan.TitanController.Current;
+            if (titan != null && __instance == titan.Body) { titan.PhysicsTick(dt); return false; }
             if (!PilotActive(__instance, out var pc)) return true;
             pc.PhysicsTick(dt);
             var m = pc.Motor;
@@ -79,8 +81,15 @@ namespace PilotHeim
         // Ctrl is slide, not Valheim's sneak toggle, while piloting.
         [HarmonyPrefix, HarmonyPatch(typeof(Player), nameof(Player.SetControls))]
         private static void SetControls(Player __instance, ref bool crouch, ref bool jump, ref bool attack, ref bool attackHold,
-                                        ref bool secondaryAttack, ref bool secondaryAttackHold, ref bool block, ref bool blockHold)
+                                        ref bool secondaryAttack, ref bool secondaryAttackHold, ref bool block, ref bool blockHold, ref bool dodge)
         {
+            var titan = PilotHeim.Titan.TitanController.Current;
+            if (titan != null && titan.Phase == PilotHeim.Titan.TitanController.State.Piloted && __instance == titan.Owner)
+            {
+                // inside the Titan every button belongs to the Titan (and must not stop the doodad control)
+                crouch = jump = attack = attackHold = secondaryAttack = secondaryAttackHold = block = blockHold = dodge = false;
+                return;
+            }
             if (!PilotActive(__instance, out var pc)) return;
             crouch = false;
             jump = false;
@@ -110,6 +119,34 @@ namespace PilotHeim
         {
             if (SelfTest.WatchedObject != null && __instance.gameObject == SelfTest.WatchedObject)
                 Plugin.Log.LogWarning("[selftest] watched object ZDO reset by: " + System.Environment.StackTrace);
+        }
+
+        // Titan shields absorb damage first.
+        [HarmonyPrefix, HarmonyPatch(typeof(Character), nameof(Character.Damage))]
+        private static void TitanShield(Character __instance, HitData hit)
+        {
+            var titan = PilotHeim.Titan.TitanController.Current;
+            if (titan != null && __instance == titan.Body) titan.OnDamaged(hit);
+        }
+
+        // A destroyed Titan explodes and ejects its pilot instead of dropping a troll corpse.
+        [HarmonyPrefix, HarmonyPatch(typeof(Character), nameof(Character.OnDeath))]
+        private static bool TitanDeath(Character __instance)
+        {
+            var titan = PilotHeim.Titan.TitanController.Current;
+            if (titan == null || __instance != titan.Body) return true;
+            titan.OnTitanDeath();      // destroyed next frame: Character.ApplyDamage still reads the ZDO after OnDeath
+            return false;
+        }
+
+        // Valheim's floating enemy HUD assumes every non-player has a BaseAI; the Titan has its own HUD.
+        [HarmonyPrefix, HarmonyPatch(typeof(EnemyHud), "TestShow")]
+        private static bool EnemyHudSkipTitan(Character c, ref bool __result)
+        {
+            var titan = PilotHeim.Titan.TitanController.Current;
+            if (titan == null || c != titan.Body) return true;
+            __result = false;
+            return false;
         }
 
         // Wallrun camera tilt.

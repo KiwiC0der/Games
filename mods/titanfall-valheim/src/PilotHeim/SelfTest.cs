@@ -68,7 +68,9 @@ namespace PilotHeim
                 }
                 catch (Exception e)
                 {
-                    Fail(name, e.GetType().Name + ": " + e.Message + " @ " + e.StackTrace?.Split('\n')[0]);
+                    var root = e; while (root.InnerException != null) root = root.InnerException;
+                    Fail(name, root.GetType().Name + ": " + root.Message + " @ " + root.StackTrace?.Split('\n')[0]);
+                    Plugin.Log.LogError("[selftest] " + name + ": " + e);
                     yield break;
                 }
                 if (cur is IEnumerator nested) yield return Guard(nested, name);
@@ -84,7 +86,10 @@ namespace PilotHeim
             float wait = 0f;
             while ((Player.m_localPlayer == null || PilotController.Local == null) && wait < 120f) { wait += Time.deltaTime; yield return null; }
             if (Player.m_localPlayer == null) { Fail("spawn", "player never spawned"); Finish(); yield break; }
+            Player.m_localPlayer.SetGodMode(true);
+            ClearTestCreatures();
             yield return new WaitForSeconds(3f);
+            ClearTestCreatures();
 
             var player = Player.m_localPlayer;
             var pc = PilotController.Local;
@@ -93,8 +98,13 @@ namespace PilotHeim
             var input = new PilotMotor.InputState();
             m.Override = input;
 
-            // anchor on the real terrain under the spawn (the test character may have logged out in the sky)
-            Vector3 spawnPos = player.transform.position;
+            // anchor on a fixed, dry, level meadow near the start temple, so every run uses the same terrain
+            // (the throwaway profile otherwise starts wherever the previous run ended)
+            Vector3 spawnPos = FindTestSite();
+            Line($"   test site: {spawnPos}");
+            yield return Teleport(player, spawnPos + Vector3.up * 2f);
+            for (float zw = 0f; zw < 15f && !ZoneSystem.instance.IsZoneLoaded(spawnPos); zw += 0.25f) yield return new WaitForSeconds(0.25f);
+            yield return new WaitForSeconds(1.5f);                 // trees and rocks spawn after the heightmap
             spawnPos.y = ZoneSystem.instance.GetGroundHeight(spawnPos);
             yield return Teleport(player, spawnPos + Vector3.up * 0.5f);
             Vector3 origin = BuildArena(spawnPos + new Vector3(0f, 250f, 0f));
@@ -228,6 +238,9 @@ namespace PilotHeim
             // --- T10.. pilot weapons against a real Valheim creature
             yield return Guard(WeaponTests(player, m, pc.Arsenal, input, spawnPos), "weapons");
 
+            // --- T20.. Titan
+            yield return Guard(TitanTests(player, m, pc, input, spawnPos), "titan");
+
             // --- T9 Valheim still Valheim
             Check("inventory intact", player.GetInventory() != null ? 1f : 0f, 1f, 0f);
             m.Override = null;
@@ -266,6 +279,7 @@ namespace PilotHeim
                 g.layer = layer;
                 g.transform.position = pos;
                 g.transform.localScale = size;
+                g.GetComponent<Renderer>().sharedMaterial = PilotHeim.Titan.TitanVisual.Mat(new Color(0.5f, 0.5f, 0.52f));
             }
             Box("PilotHeim_Floor", c + new Vector3(0f, -0.5f, 0f), new Vector3(80f, 1f, 80f));
             Box("PilotHeim_Wall", c + new Vector3(6.5f, 6f, 0f), new Vector3(1f, 12f, 60f));
@@ -352,8 +366,15 @@ namespace PilotHeim
             // --- Kraber: ballistic bolt
             yield return Spawn(spot);
             yield return Equip(w => w.IsProjectile);
-            Pull(false); Pull(true);
-            for (int i = 0; i < 40 && hits.Count == 0; i++) yield return new WaitForFixedUpdate();
+            int kShots0 = a.ShotsFired;
+            a.LastBoltImpact = "none";
+            for (float k0 = 0f; k0 < 3f && hits.Count == 0; k0 += Time.deltaTime)
+            {
+                Aim();
+                Pull(((int)(k0 * 10f)) % 2 == 0);       // tap the semi-auto trigger until a bolt connects
+                yield return null;
+            }
+            Line($"   Kraber: {a.ShotsFired - kShots0} shots, last impact {a.LastBoltImpact}");
             Check("Kraber bolt hits troll", hits.Count > 0 ? 1f : 0f, 1f, 0f);
             if (hits.Count > 0) Line($"   Kraber: {hits[0].dmg:0} at {hits[0].dist:0} u");
 
@@ -388,6 +409,149 @@ namespace PilotHeim
             if (trollGo != null) Destroy(trollGo);
         }
 
+        private IEnumerator TitanTests(Player player, PilotMotor m, PilotController pc, PilotMotor.InputState input, Vector3 ground)
+        {
+            var tt = PilotHeim.Titan.TitanController.Tuning;
+            if (tt == null) { Fail("titan", "titan tuning missing"); yield break; }
+            Vector3 stand = ground; stand.y = ZoneSystem.instance.GetGroundHeight(stand);
+            yield return Teleport(player, stand + Vector3.up * 0.3f);
+            yield return Settle(player, input);
+            input.Look = Vector3.forward;
+            yield return new WaitForSeconds(0.3f);
+
+            // troll waiting under the drop point (titanfall damage)
+            Vector3 drop = stand + Vector3.forward * 22f; drop.y = ZoneSystem.instance.GetGroundHeight(drop);
+            var trollPrefab = ZNetScene.instance.GetPrefab("Troll");
+            var victim = Instantiate(trollPrefab, drop + new Vector3(4f, 0.3f, 0f), Quaternion.identity);
+            var vai = victim.GetComponent<MonsterAI>(); if (vai) vai.enabled = false;
+            var vch = victim.GetComponent<Character>();
+            yield return new WaitForSeconds(0.5f);
+            float vhp = vch.GetHealth();
+
+            TitanMeter.Fraction = 1f;
+            float called = Time.time;
+            var titan = PilotHeim.Titan.TitanController.CallIn(player, drop, PilotController.Tuning);
+            Check("titan called in", titan != null ? 1f : 0f, 1f, 0f);
+            if (titan == null) yield break;
+            while (titan.Phase == PilotHeim.Titan.TitanController.State.Dropping && Time.time - called < 10f) yield return null;
+            float landT = Time.time - called;
+            Check("titanfall lands after the drop time (s)", landT, PilotHeim.Titan.TitanController.DropTime, 0.1f);
+            yield return new WaitForSeconds(0.4f);
+            Check("titanfall hit the troll", titan.LastLandingHits > 0 ? 1f : 0f, 1f, 0f);
+            Line($"   titanfall: landing hits {titan.LastLandingHits}, troll hp {vhp:0} -> {(vch != null && vch.m_nview.IsValid() ? vch.GetHealth().ToString("0") : "dead")}");
+            Check("titan health = segments + doomed", titan.Body.GetHealth(), titan.MaxHealth, 0.001f);
+            Check("titan shield", titan.Shield, tt.HealthShield, 0f);
+            if (victim != null) Destroy(victim);
+
+
+            // embark
+            m.Override = null;                                   // the Titan reads Valheim's doodad controls
+            yield return Teleport(player, titan.transform.position + titan.transform.right * 3f + Vector3.up * 0.3f);
+            yield return new WaitForSeconds(0.3f);
+            Check("can embark beside titan", titan.CanEmbark(player) ? 1f : 0f, 1f, 0f);
+            titan.Embark(player);
+            yield return new WaitForSeconds(0.5f);
+            Check("pilot embarked (attached)", player.IsAttached() && titan.Phase == PilotHeim.Titan.TitanController.State.Piloted ? 1f : 0f, 1f, 0f);
+
+            // drive: walk, sprint, dash
+            // drive tests on a flat sky runway: a 3 m Titan cannot walk through a Valheim beech forest
+            Vector3 runway = stand + new Vector3(0f, 250f, 160f);
+            {
+                var g = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                g.name = "PilotHeim_TitanRunway"; g.layer = LayerMask.NameToLayer("static_solid");
+                g.transform.position = runway + new Vector3(0f, -0.5f, 0f);
+                g.transform.localScale = new Vector3(90f, 1f, 220f);
+                g.GetComponent<Renderer>().sharedMaterial = PilotHeim.Titan.TitanVisual.Mat(new Color(0.45f, 0.47f, 0.5f));
+            }
+            Vector3 runStart = runway + new Vector3(0f, 0.1f, -100f);
+            titan.Body.m_body.position = runStart; titan.transform.position = runStart;
+            titan.transform.rotation = Quaternion.identity;
+            titan.Motor.ResetVelocity();
+            yield return new WaitForSeconds(0.5f);
+            Vector3 fwd = Vector3.forward;
+            titan.ExternalDrive = true;
+            for (float t0 = 0; t0 < 1.2f; t0 += Time.fixedDeltaTime) { titan.Drive(Vector3.zero, fwd, false); yield return new WaitForFixedUpdate(); }
+            float Speed() => new Vector3(titan.Motor.Vel.x, 0f, titan.Motor.Vel.z).magnitude;
+            for (float t0 = 0; t0 < 3f; t0 += Time.fixedDeltaTime) { titan.Drive(fwd, fwd, false); yield return new WaitForFixedUpdate(); }
+            Line($"   titan walk: onGround {titan.Motor.OnGround}, normal {titan.Motor.GroundNormal}, dir {fwd}, pos {titan.transform.position}");
+            Check("titan walk speed (u/s)", titan.Motor.Vel.magnitude, tt.Speed, 0.05f);
+            for (float t0 = 0; t0 < 4f; t0 += Time.fixedDeltaTime) { titan.Drive(fwd, fwd, true); yield return new WaitForFixedUpdate(); }
+            Check("titan sprint speed (u/s)", titan.Motor.Vel.magnitude, tt.SprintSpeed, 0.05f);   // along the ground plane
+            float powerBefore = titan.Motor.Power;
+            var dashField = typeof(PilotHeim.Titan.TitanController).GetField("dashQueued", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Vector3 side = Vector3.Cross(Vector3.up, fwd);
+            Vector3 dashFrom = titan.transform.position;
+            titan.Drive(side, fwd, false);
+            dashField.SetValue(titan, true);
+            yield return new WaitForFixedUpdate(); yield return new WaitForFixedUpdate();
+            Line($"   dash: horizontal {Speed():0} u/s right after (dodgeSpeed {tt.DodgeSpeed}), power {powerBefore:0} -> {titan.Motor.Power:0}");
+            Check("titan dash reaches dodgeSpeed", Speed() >= tt.DodgeSpeed * 0.9f ? 1f : 0f, 1f, 0f);
+            Check("dash used dodgePowerDrain", powerBefore - titan.Motor.Power, tt.DodgePowerDrain, 0.1f);
+            for (float t0 = 0; t0 < 1.5f; t0 += Time.fixedDeltaTime) { titan.Drive(Vector3.zero, fwd, false); yield return new WaitForFixedUpdate(); }
+            titan.ExternalDrive = false;
+            Line($"   dash travel incl. slide-out: {Vector3.Distance(titan.transform.position, dashFrom):0.0} m");
+
+            // XO-16 + salvo vs a troll in front
+            Vector3 tp = titan.transform.position + Vector3.forward * 18f; tp.y = runway.y;
+            var target = Instantiate(trollPrefab, tp + Vector3.up * 0.3f, Quaternion.identity);
+            var tai = target.GetComponent<MonsterAI>(); if (tai) tai.enabled = false;
+            var tch = target.GetComponent<Character>();
+            yield return new WaitForSeconds(0.6f);
+            int hits = 0;
+            titan.Arsenal.OnHit = (d, c, dist) => { if (c == tch) hits++; };
+            titan.Arsenal.AimProvider = () => { var e = titan.transform.position + Vector3.up * 4.5f; return new Ray(e, ((tch != null ? tch.transform.position + Vector3.up * 2f : e + Vector3.forward) - e).normalized); };
+            for (float t0 = 0; t0 < 1f; t0 += Time.deltaTime) { titan.Arsenal.TryFireNow(); yield return null; }
+            Check("XO-16 hits troll", hits > 0 ? 1f : 0f, 1f, 0f);
+            Line($"   XO-16: {hits} hits in 1 s (fire_rate {titan.Arsenal.Weapon.FireRate})");
+            titan.Arsenal.AimProvider = null;
+            titan.Arsenal.OnHit = null;
+            if (target != null) Destroy(target);
+
+            // disembark
+            titan.Disembark(false);
+            yield return new WaitForSeconds(0.5f);
+            Check("pilot disembarked", !player.IsAttached() && titan.Phase == PilotHeim.Titan.TitanController.State.Auto ? 1f : 0f, 1f, 0f);
+            Check("pilot movement active again", pc.Active ? 1f : 0f, 1f, 0f);
+
+            // screenshot for visual review: pilot at the Titan's front quarter, open sky behind
+            m.Override = input;
+            yield return Teleport(player, titan.transform.position + new Vector3(5f, 0.3f, 9f));
+            input.Look = (titan.transform.position + Vector3.up * 3f - GameCamera.instance.transform.position).normalized;
+            yield return new WaitForSeconds(1.2f);
+            string shot = System.IO.Path.Combine(Paths.BepInExRootPath, "PilotHeim_titan.png");
+            ScreenCapture.CaptureScreenshot(shot);
+            yield return new WaitForSeconds(0.5f);
+            Line($"   screenshot: {shot}");
+            var chest = titan.transform.Find("PilotHeim_TitanVisual/torso");
+            Check("titan torso stays on the hips (m)", chest != null ? chest.localPosition.y : -1f, tt.HullHeight * PilotTuning.MetersPerUnit * 0.42f, 0.05f);
+
+            // auto-titan defends: troll near the titan gets shot without input
+            Vector3 ap = titan.transform.position + Vector3.forward * 15f; ap.y = runway.y;
+            var enemy = Instantiate(trollPrefab, ap + Vector3.up * 0.3f, Quaternion.identity);
+            var eai = enemy.GetComponent<MonsterAI>(); if (eai) eai.enabled = false;
+            var ech = enemy.GetComponent<Character>();
+            yield return new WaitForSeconds(0.5f);
+            float ehp = ech.GetHealth();
+            yield return new WaitForSeconds(3f);
+            bool hurt = ech == null || !ech.m_nview.IsValid() || ech.GetHealth() < ehp;
+            Line($"   auto-titan: target {(titan.AiTarget != null ? titan.AiTarget.name : "none")}, troll hp {ehp:0} -> {(ech != null && ech.m_nview.IsValid() ? ech.GetHealth().ToString("0") : "dead")} {titan.AiDebug}");
+            Check("auto-titan engages enemies", hurt ? 1f : 0f, 1f, 0f);
+            if (enemy != null) Destroy(enemy);
+
+            // titan death: eject + cleanup
+            titan.Embark(player);
+            yield return new WaitForSeconds(0.3f);
+            titan.Shield = 0f;
+            titan.Body.SetHealth(1f);
+            var kill = new HitData(); kill.m_damage.m_blunt = 50f; kill.m_point = titan.transform.position;
+            titan.Body.Damage(kill);
+            yield return new WaitForSeconds(1.0f);
+            Check("titan destroyed on death", PilotHeim.Titan.TitanController.Current == null ? 1f : 0f, 1f, 0f);
+            Check("pilot ejected on titan death", !player.IsAttached() ? 1f : 0f, 1f, 0f);
+            yield return new WaitForSeconds(3f);
+            m.Override = input;
+        }
+
         private IEnumerator GrappleRealTree(Player player, PilotMotor m, PilotMotor.InputState input, Vector3 near)
         {
             var trees = new List<TreeBase>();
@@ -401,23 +565,34 @@ namespace PilotHeim
             int tried = 0;
             foreach (var tb in trees)
             {
-                if (tried++ >= 5) break;
+                if (tried++ >= 12) break;
                 Vector3 trunk = tb.transform.position;
                 Vector3 away = Vector3.ProjectOnPlane(near - trunk, Vector3.up);
                 if (away.sqrMagnitude < 0.01f) away = Vector3.back;
-                Vector3 stand = trunk + away.normalized * 15f;
+                away = Quaternion.Euler(0f, 37f * (tried - 1), 0f) * away.normalized;   // a different approach angle per try
+                Vector3 stand = trunk + away * 12f;
                 stand.y = ZoneSystem.instance.GetGroundHeight(stand);
+                if (Mathf.Abs(stand.y - trunk.y) > 2f || stand.y < ZoneSystem.instance.m_waterLevel + 0.5f)
+                { Line($"   tree {tried}: stand point not level/dry ({stand.y - trunk.y:0.0} m), next"); continue; }
                 yield return Teleport(player, stand + Vector3.up * 0.3f);
                 yield return Settle(player, input);
                 Vector3 eye = player.transform.position + Vector3.up * 1.6f;
                 Vector3 aim = trunk + Vector3.up * 4f;
                 Vector3 dir = (aim - eye).normalized;
+                // any tree is a fine grapple target in a dense forest; only terrain/rocks block the shot
                 if (!Physics.Raycast(eye, dir, out var los, 40f, Character.s_groundRayMask | Character.s_characterLayerMask, QueryTriggerInteraction.Ignore)
-                    || los.collider.GetComponentInParent<TreeBase>() != tb)
+                    || los.collider.GetComponentInParent<TreeBase>() == null || los.distance < 5f)
                 {
-                    Line($"   tree {tried}: no clear line of sight ({(los.collider != null ? los.collider.name : "nothing")}), next");
+                    Line($"   tree {tried}: no clear line of sight ({(los.collider != null ? los.collider.transform.root.name + "/" + los.collider.name + $" at {los.distance:0.0} m" : "nothing")}), next");
                     continue;
                 }
+                // the body must fit along the pull path too (bushes, rocks and branches stop a pilot, not a ray)
+                Vector3 body0 = player.transform.position + Vector3.up * 0.9f;
+                Vector3 toHook = los.point - body0;
+                bool pathBlocked = false;
+                foreach (var ph in Physics.SphereCastAll(body0, 0.45f, toHook.normalized, Mathf.Max(0f, toHook.magnitude - 1.5f), Character.s_groundRayMask | Character.s_blockedRayMask, QueryTriggerInteraction.Ignore))
+                    if (ph.collider.GetComponentInParent<Player>() == null && ph.collider.GetComponentInParent<TreeBase>() != los.collider.GetComponentInParent<TreeBase>() && ph.distance > 0f) { pathBlocked = true; Line($"   tree {tried}: pull path blocked by {ph.collider.transform.root.name}, next"); break; }
+                if (pathBlocked) continue;
                 input.Look = dir;
                 yield return new WaitForFixedUpdate();
                 Vector3 hook = los.point;
@@ -430,7 +605,7 @@ namespace PilotHeim
                     minD = Mathf.Min(minD, Vector3.Distance(player.transform.position, hook));
                     yield return new WaitForFixedUpdate();
                 }
-                Line($"   real tree '{tb.name}' at {trunk}: hook {los.point}, dist {d0:0.0} -> closest {minD:0.0} m, peak {peak:0} u/s, last={m.LastEvent}");
+                Line($"   real tree '{tb.name}' at {trunk}: hook {los.point}, dist {d0:0.0} -> closest {minD:0.0} m, peak {peak:0} u/s, detach={m.Grapple.LastDetach}, last={m.LastEvent}");
                 Check("grapple attached to real tree", attached ? 1f : 0f, 1f, 0f);
                 Check("grapple pulled to real tree", minD < d0 * 0.4f ? 1f : 0f, 1f, 0f);
                 yield break;
@@ -439,6 +614,51 @@ namespace PilotHeim
         }
 
         // ----------------------------------------------------------------- helpers
+        /// <summary>Deterministic test site: the first dry, flat Meadows point in a spiral around the start temple.</summary>
+        private static Vector3 FindTestSite()
+        {
+            Vector3 c = ZoneSystem.instance.FindClosestLocation("StartTemple", Vector3.zero, out var temple) ? temple.m_position : Vector3.zero;
+            var wg = WorldGenerator.instance;
+            float water = ZoneSystem.instance.m_waterLevel;
+            for (float r = 40f; r <= 400f; r += 10f)
+                for (float a = 0f; a < 360f; a += 15f)
+                {
+                    Vector3 q = c + Quaternion.Euler(0f, a, 0f) * Vector3.forward * r;
+                    if (wg.GetBiome(q.x, q.z) != Heightmap.Biome.Meadows) continue;
+                    float h = wg.GetHeight(q.x, q.z);
+                    if (h < water + 4f) continue;
+                    bool flat = true;
+                    for (float ox = -30f; ox <= 30f && flat; ox += 10f)
+                        for (float oz = -30f; oz <= 30f && flat; oz += 10f)
+                        {
+                            float hh = wg.GetHeight(q.x + ox, q.z + oz);
+                            if (Mathf.Abs(hh - h) > 3f || hh < water + 3f) flat = false;
+                        }
+                    if (flat) return new Vector3(q.x, h, q.z);
+                }
+            return c;
+        }
+
+        /// <summary>Horizontal direction with the longest unobstructed, walkable run (real terrain has trees and rocks).</summary>
+        private static Vector3 OpenDir(Vector3 from, float dist, float radius, Transform ignore)
+        {
+            Vector3 bestDir = Vector3.forward; float bestScore = -1f;
+            for (int i = 0; i < 24; i++)
+            {
+                Vector3 d = Quaternion.Euler(0f, i * 15f, 0f) * Vector3.forward;
+                float free = dist;
+                foreach (var h in Physics.SphereCastAll(from + Vector3.up * (radius + 1.5f), radius, d, dist, Character.s_blockedRayMask | Character.s_characterLayerMask, QueryTriggerInteraction.Ignore))
+                    if (!h.collider.transform.IsChildOf(ignore) && h.collider.GetComponentInParent<Player>() == null && h.distance > 0f) free = Mathf.Min(free, h.distance);
+                Vector3 end = from + d * free;
+                if (ZoneSystem.instance.GetGroundHeight(end) < ZoneSystem.instance.m_waterLevel + 1f
+                    || ZoneSystem.instance.GetGroundHeight(from + d * free * 0.5f) < ZoneSystem.instance.m_waterLevel + 1f) continue;   // stay out of the sea
+                float climb = Mathf.Abs(ZoneSystem.instance.GetGroundHeight(end) - from.y) / Mathf.Max(1f, free);
+                float score = free * (1f - Mathf.Clamp01(climb * 2f));
+                if (score > bestScore) { bestScore = score; bestDir = d; }
+            }
+            return bestDir;
+        }
+
         private static IEnumerator Teleport(Player p, Vector3 pos)
         {
             p.m_body.position = pos;
@@ -480,8 +700,21 @@ namespace PilotHeim
 
         private void Line(string s) { report.AppendLine(s); Plugin.Log.LogInfo("[selftest] " + s); }
 
+        /// <summary>Remove creatures earlier (crashed) runs may have left in the throwaway test world.</summary>
+        private static void ClearTestCreatures()
+        {
+            var me = Player.m_localPlayer;
+            foreach (var c in new List<Character>(Character.GetAllCharacters()))
+            {
+                if (c == null || c.IsPlayer()) continue;
+                if (c.gameObject.name.StartsWith("Troll") || c.gameObject.name.StartsWith("PilotHeim_"))
+                    ZNetScene.instance.Destroy(c.gameObject);
+            }
+        }
+
         private void Finish()
         {
+            ClearTestCreatures();
             if (finished) return;
             finished = true;
             Line($"RESULT: {pass} passed, {fail} failed");

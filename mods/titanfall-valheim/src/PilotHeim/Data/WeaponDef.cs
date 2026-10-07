@@ -28,17 +28,25 @@ namespace PilotHeim.Data
 
         public static WeaponDef Load(string weaponsDir, string id, bool singlePlayerProfile)
         {
-            string path = Path.Combine(weaponsDir, id + ".txt");
-            var root = KeyValues.ParseFile(path).Child("WeaponData")
-                       ?? throw new InvalidDataException(id + ": no WeaponData block");
             var w = new WeaponDef(id);
-            foreach (var n in root.Children) if (n.Value != null) w.kv[n.Key] = n.Value;
-            var profile = root.Child(singlePlayerProfile ? "SP_BASE" : "MP_BASE");
-            if (profile != null)
-                foreach (var n in profile.Children)
-                    if (n.Value != null && n.Value != "<KEEP_DEFAULT>") w.kv[n.Key] = n.Value;
+            w.Merge(weaponsDir, id + ".txt", singlePlayerProfile, 0);
             w.Resolve();
             return w;
+        }
+
+        // #base files first, then this file's keys, then its profile block
+        private void Merge(string weaponsDir, string file, bool sp, int depth)
+        {
+            if (depth > 8) throw new InvalidDataException(Id + ": #base chain too deep");
+            var bases = new List<string>();
+            var root = KeyValues.ParseFile(Path.Combine(weaponsDir, file), bases).Child("WeaponData")
+                       ?? throw new InvalidDataException(file + ": no WeaponData block");
+            foreach (var b in bases) Merge(weaponsDir, b, sp, depth + 1);
+            foreach (var n in root.Children) if (n.Value != null) kv[n.Key] = n.Value;
+            var profile = root.Child(sp ? "SP_BASE" : "MP_BASE");
+            if (profile != null)
+                foreach (var n in profile.Children)
+                    if (n.Value != null && n.Value != "<KEEP_DEFAULT>") kv[n.Key] = n.Value;
         }
 
         private WeaponDef(string id) { Id = id; }

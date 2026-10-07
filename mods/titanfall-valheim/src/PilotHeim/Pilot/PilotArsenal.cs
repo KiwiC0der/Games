@@ -19,12 +19,13 @@ namespace PilotHeim.Pilot
         private const float SonarPulseInterval = 1.3333f;       // mp_weapon_grenade_sonar.nut
 
         private readonly Player p;
-        private readonly PilotMotor m;
+        private readonly IMoverState m;
+        private readonly PilotGrapple grapple;   // pilot only
         private readonly PilotTuning t;
         public readonly List<WeaponDef> Loadout = new List<WeaponDef>();
         public int Current;
         public bool Drawn;
-        public WeaponDef Weapon => Loadout.Count > 0 ? Loadout[Current] : null;
+        public WeaponDef Weapon => Override ?? (Loadout.Count > 0 ? Loadout[Current] : null);
         public readonly TacticalKind Tactical;
         public readonly WeaponDef TacticalDef, OrdnanceDef;
         private readonly int[] clips;
@@ -53,9 +54,10 @@ namespace PilotHeim.Pilot
             public Rigidbody Body; public float Explode; public WeaponDef W; public bool Sonar; public bool Stuck; public float NextPulse, Expire;
         }
 
-        public PilotArsenal(Player p, PilotMotor m, PilotTuning t, string weaponsDir, string[] loadout, TacticalKind tactical, bool sp)
+        public PilotArsenal(Player p, IMoverState m, PilotTuning t, string weaponsDir, string[] loadout, TacticalKind tactical, bool sp,
+                            PilotGrapple grapple = null, string ordnanceId = "mp_weapon_frag_grenade")
         {
-            this.p = p; this.m = m; this.t = t;
+            this.p = p; this.m = m; this.t = t; this.grapple = grapple;
             foreach (var id in loadout) Loadout.Add(WeaponDef.Load(weaponsDir, id.Trim(), sp));
             clips = new int[Loadout.Count];
             for (int i = 0; i < clips.Length; i++) clips[i] = (int)Loadout[i].ClipSize;
@@ -63,11 +65,20 @@ namespace PilotHeim.Pilot
             string tacId = tactical == TacticalKind.Cloak ? "mp_ability_cloak" : tactical == TacticalKind.Stim ? "mp_ability_heal"
                          : tactical == TacticalKind.PulseBlade ? "mp_weapon_grenade_sonar" : null;
             if (tacId != null) TacticalDef = WeaponDef.Load(weaponsDir, tacId, sp);
-            OrdnanceDef = WeaponDef.Load(weaponsDir, "mp_weapon_frag_grenade", sp);
+            OrdnanceDef = ordnanceId != null ? WeaponDef.Load(weaponsDir, ordnanceId, sp) : null;
             Effects.Init();
         }
 
         public int Clip => clips.Length > 0 ? clips[Current] : 0;
+
+        /// <summary>Where shots leave from; the Titan overrides this with its chest gun.</summary>
+        public System.Func<Vector3> MuzzleProvider;
+        /// <summary>Colliders to ignore (the Titan's own body).</summary>
+        public Transform IgnoreRoot;
+        /// <summary>Aim ray provider (AI Titans); default is the camera.</summary>
+        public System.Func<Ray> AimProvider;
+        /// <summary>Swap the current weapon's definition temporarily (Titan core).</summary>
+        public WeaponDef Override;
 
         /// <summary>Movement speed multiplier from ADS and stim, read by the motor.</summary>
         public float SpeedScale => Mathf.Lerp(1f, Weapon != null ? Weapon.AdsMoveSpeedScale : 1f, adsFrac) * (Stimmed ? StimSpeedBoost : 1f);
@@ -78,14 +89,14 @@ namespace PilotHeim.Pilot
         {
             // regenerate offhands (regen_ammo_refill_rate per second, 200 max)
             if (TacticalDef != null && !Cloaked && !Stimmed) TacticalAmmo = Mathf.Min(200f, TacticalAmmo + TacticalDef.RegenRate * dt);
-            OrdnanceAmmo = Mathf.Min(200f, OrdnanceAmmo + OrdnanceDef.RegenRate * dt);
+            if (OrdnanceDef != null) OrdnanceAmmo = Mathf.Min(200f, OrdnanceAmmo + OrdnanceDef.RegenRate * dt);
             if (Stimmed) p.Heal(p.GetMaxHealth() / Mathf.Max(0.5f, TacticalDef.FireDuration) * dt, false);
             ApplyCloakVisual();
 
             if (input && toggle) { Drawn = !Drawn; deployEnd = m.Time + (Weapon != null ? Weapon.DeployTime : 0f); reloadEnd = 0f; }
             if (input && swap && Loadout.Count > 1) { Current = (Current + 1) % Loadout.Count; Drawn = true; deployEnd = m.Time + Weapon.DeployTime; reloadEnd = 0f; }
             if (input && tactical) UseTactical();
-            if (input && ordnance) ThrowGrenade(OrdnanceDef, false);
+            if (input && ordnance && OrdnanceDef != null) ThrowGrenade(OrdnanceDef, false);
 
             var w = Weapon;
             UpdateAds(dt, Drawn && input && adsHeld && w != null);
@@ -118,13 +129,14 @@ namespace PilotHeim.Pilot
         // ------------------------------------------------------------------ firing
         private void Fire(WeaponDef w)
         {
-            clips[Current] -= Mathf.Max(1, (int)w.AmmoPerShot);
+            if (Override == null) clips[Current] -= Mathf.Max(1, (int)w.AmmoPerShot);
             ShotsFired++;
             nextFire = m.Time + 1f / Mathf.Max(0.01f, w.FireRate);
             lastFire = m.Time;
-            var cam = GameCamera.instance.transform;
-            Vector3 origin = cam.position, aim = cam.forward;
-            Vector3 muzzle = p.transform.position + Vector3.up * 1.45f + p.transform.right * 0.25f + p.transform.forward * 0.4f;
+            Ray ray = AimProvider != null ? AimProvider() : new Ray(GameCamera.instance.transform.position, GameCamera.instance.transform.forward);
+            Vector3 origin = ray.origin, aim = ray.direction;
+            Vector3 muzzle = MuzzleProvider != null ? MuzzleProvider()
+                           : p.transform.position + Vector3.up * 1.45f + p.transform.right * 0.25f + p.transform.forward * 0.4f;
             float spread = CurrentSpread(w);
 
             if (w.IsShotgun) ShotgunBlast(w, origin, aim, muzzle, spread);
@@ -139,7 +151,35 @@ namespace PilotHeim.Pilot
             p.m_lookYaw *= Quaternion.Euler(0f, (w.KickYawBase + Random.Range(-w.KickYawRandom, w.KickYawRandom)) * kickScale * 0.5f, 0f);
             Effects.Muzzle(muzzle, aim);
             Effects.Sound("fire", muzzle);
-            if (clips[Current] <= 0) StartReload(true);
+            if (Override == null && clips[Current] <= 0) StartReload(true);
+        }
+
+        /// <summary>Fire one shot now regardless of input (AI Titans and burst offhands).</summary>
+        /// <summary>Reload completion and spread recovery without player input (AI Titan); leaves the camera alone.</summary>
+        public void BackgroundTick(float dt)
+        {
+            var w = Weapon;
+            if (w == null) return;
+            if (Reloading && m.Time >= reloadEnd) { clips[Current] = (int)w.ClipSize; reloadEnd = 0f; }
+            if (m.Time - lastFire > w.SpreadDecayDelay) spreadKick = Mathf.Max(0f, spreadKick - w.SpreadDecayRate * dt);
+        }
+
+        public bool TryFireNow()
+        {
+            var w = Weapon;
+            if (w == null || Reloading || m.Time < nextFire || m.Time < deployEnd) return false;
+            if (Override == null && clips[Current] <= 0) { StartReload(true); return false; }
+            Fire(w);
+            return true;
+        }
+
+        /// <summary>Launch an explosive rocket (salvo rockets, core shells).</summary>
+        public void SpawnRocket(WeaponDef w, Vector3 from, Vector3 dir)
+        {
+            float speed = w.F("projectile_launch_speed", w.BoltSpeed > 0f ? w.BoltSpeed : 4000f);
+            var b = new Bolt { Pos = from, Vel = dir.normalized * speed, W = w, Gravity = 0f };
+            b.Trail = Effects.NewLine(0.08f, new Color(1f, 0.6f, 0.25f, 0.9f));
+            bolts.Add(b);
         }
 
         private float CurrentSpread(WeaponDef w)
@@ -207,6 +247,8 @@ namespace PilotHeim.Pilot
             bolts.Add(b);
         }
 
+        public string LastBoltImpact = "none";
+
         private bool StepBolt(Bolt b, float dt)
         {
             b.Vel.y -= b.Gravity * dt;
@@ -215,8 +257,10 @@ namespace PilotHeim.Pilot
             if (FirstHit(b.Pos, step / len, len, out var hit))
             {
                 b.Traveled += hit.distance / U;
+                LastBoltImpact = $"{hit.collider.transform.root.name}/{hit.collider.name} at {b.Traveled:0} u";
                 ApplyBullet(b.W, hit.collider, hit.point, step / len, b.W.DamageAt(b.Traveled));
-                Effects.Impact(hit.point, hit.normal);
+                if (b.W.ExplosionDamage > 0f && b.W.ExplosionRadius > 0f) Explode(hit.point, b.W);
+                else Effects.Impact(hit.point, hit.normal);
                 return true;
             }
             if (b.Trail) { b.Trail.SetPosition(0, b.Pos); b.Trail.SetPosition(1, b.Pos + step); }
@@ -234,9 +278,20 @@ namespace PilotHeim.Pilot
             {
                 if (h.distance >= bestD) continue;
                 if (h.collider.GetComponentInParent<Player>() == p) continue;
+                if (IgnoreRoot != null && h.collider.transform.IsChildOf(IgnoreRoot)) continue;
                 best = h; bestD = h.distance;
             }
             return bestD < float.MaxValue;
+        }
+
+        private static readonly System.Collections.Generic.HashSet<string> headlessLogged = new System.Collections.Generic.HashSet<string>();
+
+        /// <summary>Head position; creatures with a non-humanoid rig have no head bone, so use the top of the capsule.</summary>
+        private static Vector3 HeadPoint(Character c, float headR)
+        {
+            if (c.m_head != null) return c.m_head.position;
+            if (headlessLogged.Add(c.name)) Plugin.Log.LogInfo($"no head bone on {c.name}; headshots use the capsule top");
+            return c.GetTopPoint() - Vector3.up * headR;
         }
 
         private void ApplyBullet(WeaponDef w, Collider col, Vector3 point, Vector3 dir, float damage)
@@ -247,9 +302,10 @@ namespace PilotHeim.Pilot
             if (target != null)
             {
                 if (target == p || target.IsTamed() || (target.IsPlayer() && !p.IsPVPEnabled())) return;
+                if (target.m_faction == Character.Faction.Players && !target.IsPlayer()) return;   // your own Titan
                 // headshot: within the head sphere of the target
                 float headR = Mathf.Max(0.18f, target.GetRadius() * 0.6f);
-                if (Vector3.Distance(point, target.GetHeadPoint()) <= headR) damage *= w.HeadshotScale;
+                if (Vector3.Distance(point, HeadPoint(target, headR)) <= headR) damage *= w.HeadshotScale;
             }
             OnHit?.Invoke(damage, target, Vector3.Distance(p.transform.position, point) / U);
             var hit = new HitData();
@@ -270,7 +326,7 @@ namespace PilotHeim.Pilot
             if (Tactical == TacticalKind.Grapple)
             {
                 var cam = GameCamera.instance.transform;
-                m.Grapple.Fire(cam.position, cam.forward);
+                grapple?.Fire(cam.position, cam.forward);
                 return;
             }
             var d = TacticalDef;
@@ -361,7 +417,7 @@ namespace PilotHeim.Pilot
             return true;
         }
 
-        private void Explode(Vector3 pos, WeaponDef w)
+        public void Explode(Vector3 pos, WeaponDef w)
         {
             float outer = w.ExplosionRadius * U, inner = w.ExplosionInnerRadius * U;
             var done = new HashSet<IDestructible>();
@@ -370,7 +426,9 @@ namespace PilotHeim.Pilot
                 var dest = col.GetComponentInParent<IDestructible>();
                 if (dest == null || !done.Add(dest)) continue;
                 var tc = col.GetComponentInParent<Character>();
-                if (tc != null && tc.IsTamed()) continue;
+                if (tc != null && (tc.IsTamed() || (tc.m_faction == Character.Faction.Players && !tc.IsPlayer()))) continue;
+                if (IgnoreRoot != null && col.transform.IsChildOf(IgnoreRoot)) continue;
+                if (tc == p && w.S("projectile_damages_owner", "1") == "0") continue;
                 Vector3 c = col.ClosestPoint(pos);
                 float d = Vector3.Distance(pos, c);
                 float frac = d <= inner ? 1f : Mathf.Clamp01(1f - (d - inner) / Mathf.Max(0.01f, outer - inner));

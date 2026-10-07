@@ -14,7 +14,7 @@ namespace PilotHeim.Pilot
     /// Source's TryPlayerMove for collision, so velocity is re-read from the
     /// rigidbody at the start of each tick.
     /// </summary>
-    public sealed class PilotMotor
+    public sealed class PilotMotor : IMoverState
     {
         private const float U = PilotTuning.MetersPerUnit;
         private const float NonJumpVelocity = 140f;          // CategorizePosition: rising faster than this is airborne
@@ -28,15 +28,20 @@ namespace PilotHeim.Pilot
 
         // --- kinematic state (Source units, Unity axes) ---
         public Vector3 Vel;
-        public bool OnGround;
+        public bool OnGround { get => onGround; set => onGround = value; }
+        private bool onGround;
         public Vector3 GroundNormal = Vector3.up;
-        public bool Wallrunning;
+        public bool Wallrunning { get => wallrunning; set => wallrunning = value; }
+        private bool wallrunning;
         public Vector3 WallNormal;
         public Collider WallCollider;
         public bool Sliding;
-        public bool Crouched;
-        public bool Sprinting;
-        public float Time;
+        public bool Crouched { get => crouched; set => crouched = value; }
+        private bool crouched;
+        public bool Sprinting { get => sprinting; set => sprinting = value; }
+        private bool sprinting;
+        public float Time { get => time; set => time = value; }
+        private float time;
 
         private float wallrunStart, pushAwayStart, wallRetryUntil;
         private bool sameWall;

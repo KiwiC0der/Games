@@ -40,7 +40,14 @@ namespace PilotHeim.Data
                 if (cls.Value != null) continue;
                 foreach (var sec in cls.Children)                               // "global" / "stand" / "crouch"
                 {
-                    if (sec.Value != null) continue;
+                    if (sec.Value != null)
+                    {
+                        // keys directly on the class block (titan_build_time, ...) live in section ""
+                        if (!sections.TryGetValue("", out var top))
+                            sections[""] = top = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        top[sec.Key] = sec.Value;
+                        continue;
+                    }
                     if (!sections.TryGetValue(sec.Key, out var dict))
                         sections[sec.Key] = dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var kv in sec.Children)

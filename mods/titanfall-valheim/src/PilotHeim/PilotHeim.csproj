@@ -35,6 +35,7 @@
     <Reference Include="$(Managed)\UnityEngine.ImageConversionModule.dll" Private="false" />
     <Reference Include="$(Managed)\UnityEngine.AssetBundleModule.dll" Private="false" />
     <Reference Include="$(Managed)\Unity.InputSystem.dll" Private="false" />
+    <Reference Include="$(Managed)\UnityEngine.ScreenCaptureModule.dll" Private="false" />
   </ItemGroup>
   <Target Name="DeployPlugin" AfterTargets="Build" Condition="Exists('$(ValheimDir)\BepInEx')">
     <MakeDir Directories="$(PluginOut)" />

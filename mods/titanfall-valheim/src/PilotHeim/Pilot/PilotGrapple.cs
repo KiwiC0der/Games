@@ -78,8 +78,11 @@ namespace PilotHeim.Pilot
             lastUseTime = motor.Time;
         }
 
+        public string LastDetach = "";
+
         public void Detach(string why)
         {
+            LastDetach = why;
             if (Phase == State.Attached)
             {
                 // grapple_detach*: losing speed when letting go, and a small hop past the point
