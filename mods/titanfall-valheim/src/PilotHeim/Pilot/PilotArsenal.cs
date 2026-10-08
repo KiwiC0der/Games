@@ -225,7 +225,7 @@ namespace PilotHeim.Pilot
                 if (blasts <= 0) break;
                 if (col.GetComponentInParent<Player>() == p) continue;
                 var dest = col.GetComponentInParent<IDestructible>();
-                if (dest == null || seen.Contains(dest)) continue;
+                if (!Damageable(dest) || seen.Contains(dest)) continue;
                 Vector3 c = col.bounds.center;
                 if (Vector3.Angle(aim, c - origin) > maxAngle * 1.1f) continue;
                 if (!FirstHit(origin, (c - origin).normalized, maxDist + 2f, out var hit) || hit.collider.GetComponentInParent<IDestructible>() != dest) continue;
@@ -297,10 +297,14 @@ namespace PilotHeim.Pilot
             return c.GetTopPoint() - Vector3.up * headR;
         }
 
+        /// <summary>Building pieces are only hit when the WeaponsDamageBuildings option is on.</summary>
+        public static bool Damageable(IDestructible dest) =>
+            dest != null && (Plugin.WeaponsDamageBuildings.Value || !(dest is WearNTear));
+
         private void ApplyBullet(WeaponDef w, Collider col, Vector3 point, Vector3 dir, float damage)
         {
             var dest = col.GetComponentInParent<IDestructible>();
-            if (dest == null) return;
+            if (!Damageable(dest)) return;
             var target = col.GetComponentInParent<Character>();
             if (target != null)
             {
@@ -428,7 +432,7 @@ namespace PilotHeim.Pilot
             foreach (var col in Physics.OverlapSphere(pos, outer, Character.s_characterLayerMask | Character.s_groundRayMask, QueryTriggerInteraction.Ignore))
             {
                 var dest = col.GetComponentInParent<IDestructible>();
-                if (dest == null || !done.Add(dest)) continue;
+                if (!Damageable(dest) || !done.Add(dest)) continue;
                 var tc = col.GetComponentInParent<Character>();
                 if (tc != null && (tc.IsTamed() || (tc.m_faction == Character.Faction.Players && !tc.IsPlayer()))) continue;
                 if (IgnoreRoot != null && col.transform.IsChildOf(IgnoreRoot)) continue;

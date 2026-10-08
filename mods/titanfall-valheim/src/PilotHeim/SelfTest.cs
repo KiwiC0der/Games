@@ -82,6 +82,7 @@ namespace PilotHeim
         {
             t = PilotController.Tuning;
             Line($"PilotHeim self-test  {DateTime.Now:yyyy-MM-dd HH:mm:ss}  tuning values={t.Report.Count}");
+            Application.logMessageReceivedThreaded += CountErrors;
             yield return StartWorld();
             float wait = 0f;
             while ((Player.m_localPlayer == null || PilotController.Local == null) && wait < 120f) { wait += Time.deltaTime; yield return null; }
@@ -128,8 +129,21 @@ namespace PilotHeim
             // --- T2 sprint speed
             input.Sprint = true;
             float sprint = 0f;
-            yield return Measure(2.0f, 0.6f, () => m.HorizontalSpeed, v => sprint = v);
+            var trace = new System.Text.StringBuilder();
+            float traceT = 0f;
+            yield return Measure(2.0f, 0.6f, () =>
+            {
+                traceT += Time.fixedDeltaTime;
+                if (traceT >= 0.2f) { traceT = 0f; trace.Append($"{m.HorizontalSpeed:0}/{(m.OnGround ? "g" : "a")}{(player.IsAttached() ? "A" : "")}{(player.InIntro() ? "I" : "")} "); }
+                return m.HorizontalSpeed;
+            }, v => sprint = v);
             if (Mathf.Abs(sprint - t.SprintSpeed) > t.SprintSpeed * 0.03f)
+            {
+                var near = new System.Collections.Generic.List<string>();
+                foreach (var c in Physics.OverlapSphere(player.transform.position + Vector3.up, 1.6f, ~0, QueryTriggerInteraction.Ignore))
+                    if (!c.transform.IsChildOf(player.transform)) near.Add(c.transform.root.name + "/" + c.name);
+                Line($"   sprint trace: {trace} | near: {string.Join(", ", near)} | valkyrie {(Valkyrie.m_instance != null)} | last event {m.LastEvent}");
+            }
                 Line($"   sprint diag: ground {m.OnGround} wallrun {m.Wallrunning} slide {m.Sliding} arsenal x{pc.Arsenal?.SpeedScale ?? 1f:0.00} valheim x{player.GetRunSpeedFactor():0.00} encumbered {player.IsEncumbered()} pos {player.transform.position - origin}");
             Check("sprint speed (u/s)", sprint, t.SprintSpeed, 0.03f);
             float stam = player.GetStamina();
@@ -286,6 +300,9 @@ namespace PilotHeim
 
             // --- T9 Valheim still Valheim
             Check("inventory intact", player.GetInventory() != null ? 1f : 0f, 1f, 0f);
+            Application.logMessageReceivedThreaded -= CountErrors;
+            if (errorCount > 0) Line($"   first error: {firstError}");
+            Check("no errors or exceptions logged during the run", errorCount, 0f, 0f);
             m.Override = null;
             Finish();
         }
@@ -345,7 +362,7 @@ namespace PilotHeim
 
             IEnumerator Spawn(Vector3 at)
             {
-                if (trollGo != null) Destroy(trollGo);
+                if (trollGo != null) Net.Destroy(trollGo);
                 trollGo = Instantiate(prefab, at + Vector3.up * 0.3f, Quaternion.Euler(0f, 180f, 0f));
                 troll = trollGo.GetComponent<Character>();
                 var ai = trollGo.GetComponent<MonsterAI>();
@@ -440,6 +457,31 @@ namespace PilotHeim
             float ft = Time.time;
             while (hits.Count == 0 && Time.time - ft < a.OrdnanceDef.FuseTime + 2f) yield return new WaitForFixedUpdate();
             Check("frag explosion damages troll", hits.Count > 0 ? 1f : 0f, 1f, 0f);
+
+            // your base is safe from your own fire (WeaponsDamageBuildings off by default)
+            var wallPrefab = ZNetScene.instance.GetPrefab("woodwall");
+            if (wallPrefab != null)
+            {
+                if (trollGo != null) Net.Destroy(trollGo);
+                var wallGo = Instantiate(wallPrefab, spot + Vector3.up * 0.05f, Quaternion.identity);
+                var wnt = wallGo.GetComponent<WearNTear>();
+                yield return new WaitForSeconds(0.5f);
+                float hp0w = wnt != null ? wnt.GetHealthPercentage() : 0f;
+                yield return Equip(w => w.Id == "mp_weapon_rspn101");
+                for (float k0 = 0f; k0 < 0.8f; k0 += Time.deltaTime)
+                {
+                    input.Look = ((wallGo.transform.position + Vector3.up * 1f) - GameCamera.instance.transform.position).normalized;
+                    Pull(true); yield return null;
+                }
+                Pull(false);
+                var frag = a.OrdnanceDef;
+                if (frag != null) a.Explode(wallGo.transform.position + Vector3.up * 0.5f, frag);
+                yield return new WaitForSeconds(0.5f);
+                float hp1w = wnt != null && wnt.m_nview != null && wnt.m_nview.IsValid() ? wnt.GetHealthPercentage() : 0f;
+                Line($"   wood wall health {hp0w:P0} -> {hp1w:P0} after R-201 fire and a frag");
+                Check("own fire leaves building pieces intact", wnt != null && hp1w >= hp0w - 0.001f && hp0w > 0f ? 1f : 0f, 1f, 0f);
+                if (wallGo != null) ZNetScene.instance.Destroy(wallGo);
+            }
             if (hits.Count > 0) Line($"   frag: {hits[0].dmg:0} blunt at {hits[0].dist:0} u (explosion_damage {a.OrdnanceDef.ExplosionDamage}, radius {a.OrdnanceDef.ExplosionRadius} u)");
 
             // --- Cloak vs the troll's senses
@@ -456,7 +498,7 @@ namespace PilotHeim
             }
             a.OnHit = null;
             a.Drawn = false;
-            if (trollGo != null) Destroy(trollGo);
+            if (trollGo != null) Net.Destroy(trollGo);
         }
 
         private IEnumerator BodyTests(Player player, PilotMotor m, PilotController pc, PilotMotor.InputState input, Vector3 ground)
@@ -592,7 +634,7 @@ namespace PilotHeim
                 Line($"   ragdoll: viking meshes shown {vik}, pilot hips {gap:0.00} m from the ragdoll hips");
                 Check("ragdoll: Viking hidden, pilot follows the physics bones", vik == 0 && gap < 0.3f ? 1f : 0f, 1f, 0f);
             }
-            if (rag != null) Destroy(rag.gameObject);
+            if (rag != null) Net.Destroy(rag.gameObject);
         }
 
         private IEnumerator TitanTests(Player player, PilotMotor m, PilotController pc, PilotMotor.InputState input, Vector3 ground)
@@ -642,7 +684,7 @@ namespace PilotHeim
                 Check("BT is the exported Titanfall model", titan.Visual.RealModel ? 1f : 0f, 1f, 0f);
                 Check("BT textures loaded", PilotHeim.Assets.TfMaterials.TexturesLoaded > 0 && PilotHeim.Assets.TfMaterials.Missing == 0 ? 1f : 0f, 1f, 0f);
             }
-            if (victim != null) Destroy(victim);
+            if (victim != null) Net.Destroy(victim);
 
 
             // embark
@@ -735,7 +777,7 @@ namespace PilotHeim
             Line($"   XO-16: {hits} hits in 1 s (fire_rate {titan.Arsenal.Weapon.FireRate})");
             titan.Arsenal.AimProvider = null;
             titan.Arsenal.OnHit = null;
-            if (target != null) Destroy(target);
+            if (target != null) Net.Destroy(target);
 
             // disembark
             titan.Disembark(false);
@@ -773,7 +815,17 @@ namespace PilotHeim
                 Check("BT calls out the kill", ech == null || !ech.m_nview.IsValid() ? (titan.Said.Contains("kill") ? 1f : 0f) : 1f, 1f, 0f);
                 Check("BT acknowledges the disembark", titan.Said.Contains("disembark") ? 1f : 0f, 1f, 0f);
             }
-            if (enemy != null) Destroy(enemy);
+            if (enemy != null) Net.Destroy(enemy);
+
+            // a stuck or far-behind auto-titan drops in again beside the pilot
+            titan.Redeploy();
+            Check("BT redeploys with a Titanfall", titan.Phase == PilotHeim.Titan.TitanController.State.Dropping ? 1f : 0f, 1f, 0f);
+            float rd0 = Time.time;
+            while (titan.Phase == PilotHeim.Titan.TitanController.State.Dropping && Time.time - rd0 < 6f) yield return null;
+            float rdGap = Vector3.Distance(titan.transform.position, player.transform.position);
+            Line($"   redeploy landed {rdGap:0.0} m from the pilot after {Time.time - rd0:0.00} s");
+            Check("redeploy lands beside the pilot", rdGap < 15f && player.GetHealth() > 0f ? 1f : 0f, 1f, 0f);
+            yield return new WaitForSeconds(1f);
 
             // titan death: eject + cleanup
             titan.Embark(player);
@@ -939,8 +991,21 @@ namespace PilotHeim
         private void Line(string s) { report.AppendLine(s); Plugin.Log.LogInfo("[selftest] " + s); }
 
         /// <summary>Remove creatures earlier (crashed) runs may have left in the throwaway test world.</summary>
+        private int errorCount;
+        private string firstError;
+
+        private void CountErrors(string msg, string stack, LogType type)
+        {
+            if (type != LogType.Error && type != LogType.Exception && type != LogType.Assert) return;
+            if (msg.Contains("Steamworks") || msg.Contains("Missing audio clip")) return;   // Valheim/Steam noise, not ours
+            if (System.Threading.Interlocked.Increment(ref errorCount) == 1) firstError = msg + " @ " + (stack ?? "").Split('\n')[0];
+        }
+
         private static void ClearTestCreatures()
         {
+            // Hugin's tutorial raven lands next to a new character and blocks the test lanes
+            Raven.m_tutorialsEnabled = false;
+            foreach (var r in FindObjectsByType<Raven>(FindObjectsSortMode.None)) Net.Destroy(r.gameObject);
             var me = Player.m_localPlayer;
             foreach (var c in new List<Character>(Character.GetAllCharacters()))
             {

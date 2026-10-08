@@ -124,6 +124,7 @@ namespace PilotHeim.Titan
             if (nv != null && nv.IsValid()) nv.GetZDO().Persistent = false;     // never saved into the world
             Body.m_name = "BT-7274";
             Body.m_faction = Character.Faction.Players;
+            Body.m_canSwim = false;                                   // Titans wade; the troll's swim code would take control away
             Body.m_damageModifiers = new HitData.DamageModifiers();
             Body.m_boss = false;
             Body.SetMaxHealth(MaxHealth);
@@ -173,7 +174,7 @@ namespace PilotHeim.Titan
         // ------------------------------------------------------------- frame tick
         private void Update()
         {
-            if (Body == null || Owner == null) { Destroy(gameObject); return; }
+            if (Body == null || Owner == null) { Net.Destroy(gameObject); return; }
             if (dying) { if (Time.time >= destroyAt) ZNetScene.instance.Destroy(gameObject); return; }
             float dt = Time.deltaTime;
             UpdateDrop();
@@ -209,6 +210,7 @@ namespace PilotHeim.Titan
             {
                 Arsenal.BackgroundTick(dt);
                 AiThink();
+                UpdateStuck(dt);
                 // a kneeling BT gets up when he has to follow the pilot or fight
                 if (visual.Kneeling && (aiTarget != null || (Following && AiDistToOwner() > KneelWaitDist)))
                 {
@@ -268,7 +270,7 @@ namespace PilotHeim.Titan
             {
                 if (col.transform.IsChildOf(transform)) continue;
                 var dest = col.GetComponentInParent<IDestructible>();
-                if (dest == null || !hitOnce.Add(dest)) continue;
+                if (!PilotArsenal.Damageable(dest) || !hitOnce.Add(dest)) continue;
                 var c = col.GetComponentInParent<Character>();
                 if (c != null && (c == Owner || c.IsTamed() || c.m_faction == Character.Faction.Players)) continue;
                 float d = Vector3.Distance(dropTo, col.ClosestPoint(dropTo)) / U;
@@ -466,6 +468,49 @@ namespace PilotHeim.Titan
         public string AiDebug = "";
 
         private Character lastAiTarget;
+        private float stuckTime;
+        public int Redeploys { get; private set; }
+
+        /// <summary>
+        /// The auto-titan follows in a straight line; when a forest or cliff holds him back he dashes to
+        /// break free, and if he is still stuck (or the pilot is far away) he drops in again beside the pilot.
+        /// </summary>
+        private void UpdateStuck(float dt)
+        {
+            if (!Following || visual.Locked || Owner == null) { stuckTime = 0f; return; }
+            float dist = AiDistToOwner();
+            float speed = new Vector3(Motor.Vel.x, 0f, Motor.Vel.z).magnitude;
+            bool wantsToMove = dist > FollowDist * 1.5f;
+            if (wantsToMove && speed < 40f) stuckTime += dt; else stuckTime = Mathf.Max(0f, stuckTime - dt * 2f);
+            if (stuckTime > 2f && stuckTime - dt <= 2f && Motor.Power >= Tuning.DodgePowerDrain) dashQueued = true;
+            if (stuckTime > 8f || dist > 4000f) Redeploy();
+        }
+
+        /// <summary>Titanfall again, next to the pilot (landing damage spares the pilot as on the first drop).</summary>
+        public void Redeploy()
+        {
+            if (Owner == null || Phase == State.Piloted || Phase == State.Dropping) return;
+            Vector3 side = Vector3.ProjectOnPlane(transform.position - Owner.transform.position, Vector3.up);
+            side = side.sqrMagnitude > 0.01f ? side.normalized : -Owner.transform.forward;
+            Vector3 target = Owner.transform.position + side * 9f;
+            // the surface beside the pilot (terrain, rock, a building roof...), not just the heightmap
+            if (Physics.Raycast(target + Vector3.up * 8f, Vector3.down, out var gh, 40f, Character.s_groundRayMask, QueryTriggerInteraction.Ignore))
+                target.y = gh.point.y;
+            else if (ZoneSystem.instance != null && ZoneSystem.instance.GetGroundHeight(target, out float gy)) target.y = gy;
+            stuckTime = 0f; Redeploys++;
+            Motor.ResetVelocity();
+            Body.m_body.isKinematic = true;
+            dropTo = target;
+            dropFrom = target + Vector3.up * (DropHeight * U);
+            Body.m_body.position = dropFrom; transform.position = dropFrom;
+            dropStart = Time.time;
+            Phase = State.Dropping;
+            beacon = Effects.NewLine(0.25f, new Color(1f, 0.15f, 0.1f, 0.85f));
+            Effects.Sound("titan:inbound", Owner.transform.position);
+            if (visual.RealModel && AssetLibrary.TitanClips.TryGetValue("hotdrop", out var hd))
+                visual.PlayAction("hotdrop", Mathf.Max(0f, hd.Mark - DropTime), 0f);
+            Plugin.Log.LogInfo($"BT redeploys beside the pilot (stuck or {AiDistToOwner():0} u behind)");
+        }
 
         private Ray AiRay()
         {

@@ -21,6 +21,7 @@ only, no game files.
 | Titan | Meter builds over `titan_build_time`; **V** calls in a 2.5 s hot drop that crushes what's under it; **E** embarks and disembarks; Titan walk/sprint/dash from the Titan set file; XO-16, salvo rockets, electric smoke, core; auto-titan follows or guards and fights; shields, doomed state and ejection. |
 | Visuals | The real BT-7274 with his own animations (idle, walk/run/sprint, dash, hot drop and kneel, embark, disembark, death) and a first-person cockpit view. Jack Cooper replaces the Valheim body: with the pilot gun out, or wallrunning, sliding, jet-jumping or grappling, he plays Titanfall's pilot animations and holds the real weapon model; holstered, Valheim's animator drives him through a per-bone retarget, so chopping, mining, building, swimming and attacks animate as usual. The death ragdoll wears the pilot too. |
 | Sound | Titanfall weapon, movement, grapple, cloak, stim, Titanfall and embark sounds, and BT-7274's voice (embark, disembark, kills, shields down, doomed, core), through Valheim's SFX mixer. |
+| Your base | Pilot guns, explosions and Titanfall landings don't damage your buildings (option `WeaponsDamageBuildings`). A stuck or far-behind BT re-drops beside you. |
 | HUD | Titanfall's own weapon names (from its localization), shields, hull, dash, salvo, smoke and core meters. The Titan meter is saved with your character. |
 
 Without exported assets the mod still works with stand-in visuals and Valheim sounds.

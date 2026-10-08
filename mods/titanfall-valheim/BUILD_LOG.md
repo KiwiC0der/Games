@@ -145,5 +145,21 @@ generated from their own `server.dll`.
 - Materials whose maps use another stem (`at_rifle_body` → `at_rifle_col`) now load.
 - Self-test: **83/83 pass, zero errors.**
 
+## 2026-10-07 — robustness pass
+- **Networked objects leave through ZNetScene.** `ZNetView.OnDestroy` does not unregister itself, so a
+  plain `Object.Destroy` left a dead entry that made `ZNetScene.RemoveObjects` throw every frame once
+  the player moved away (592 NREs in one run). A Titan whose owner was gone used that path; all
+  destroys now go through `Net.Destroy`.
+- **Your base is safe from your own fire**: pilot guns, explosions and Titanfall landings skip
+  building pieces unless `Combat.WeaponsDamageBuildings` is on (trees, rocks and creatures still take
+  damage).
+- **Stuck auto-titan**: dashes to break free after 2 s, redeploys with a Titanfall beside the pilot
+  after 8 s stuck or 100 m behind; the landing spot is ray-cast, so a pilot on a roof or platform gets
+  BT on that surface, not the terrain below. BT wades instead of swimming.
+- **Self-test**: fails on any error or exception logged during the run; Hugin's tutorial raven (which
+  lands beside a new character and blocked a lane) is disabled for the test; a run that produces no
+  report keeps its log.
+- Self-test: **87/87, zero errors**, on four consecutive fresh random worlds.
+
 ## Remaining
 Multiplayer: other players still see the Viking and a troll-shaped Titan (the mod is client-side).
