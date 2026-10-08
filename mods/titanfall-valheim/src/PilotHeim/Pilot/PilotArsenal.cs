@@ -73,6 +73,8 @@ namespace PilotHeim.Pilot
 
         /// <summary>Where shots leave from; the Titan overrides this with its chest gun.</summary>
         public System.Func<Vector3> MuzzleProvider;
+        /// <summary>Every character this arsenal's bullets or explosions hit (BT uses it for kill callouts).</summary>
+        public event System.Action<Character> HitCharacter;
         /// <summary>Colliders to ignore (the Titan's own body).</summary>
         public Transform IgnoreRoot;
         /// <summary>Aim ray provider (AI Titans); default is the camera.</summary>
@@ -309,6 +311,7 @@ namespace PilotHeim.Pilot
                 if (Vector3.Distance(point, HeadPoint(target, headR)) <= headR) damage *= w.HeadshotScale;
             }
             OnHit?.Invoke(damage, target, Vector3.Distance(p.transform.position, point) / U);
+            if (target != null) HitCharacter?.Invoke(target);
             var hit = new HitData();
             hit.m_damage.m_pierce = damage * Plugin.DamageScale.Value;
             hit.m_point = point;

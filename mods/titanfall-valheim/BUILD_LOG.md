@@ -121,6 +121,29 @@ generated from their own `server.dll`.
   once blocked the line of fire on terrain), retarget sampled after `LateUpdate`.
 - Self-test: **62/62 pass, zero errors**, on three consecutive fresh random worlds.
 
+## 2026-10-07 — polish pass
+- **Key conflicts found against Valheim's real bindings** (decompiled `ZInput.Reset`): Q is Valheim
+  autorun, G the radial menu, V auto-pickup, X sit, R hide weapons, E use. A Harmony prefix on
+  `ZInput.TryGetButtonState` gives those keys to the pilot only while pilot mode is on (R/X only with
+  the gun drawn, E only next to BT) and only while both sides are still bound to the same key.
+- **Titanfall pilot animations on Jack**: 19 clips from `pilot_light_core.mdl` (same skeleton, mapped by
+  bone name) for wallrun left/right/up, slide, jump, double jump, float, land, grapple and gun-drawn
+  idle/walk/run; blended over the Valheim retarget and back when holstered.
+- **Pilot guns**: `tools/tf2_weapons.py` exports all 54 pilot weapons' world models from their
+  `playermodel`; the drawn gun sits in Jack's hand at its `r_hand_ik` grip, tracers leave its muzzle,
+  and the Valheim item in hand is hidden meanwhile.
+- **Cockpit view** (B): camera at the Titan set's viewheight, near plane at 1.4 m so the hull is clipped,
+  BT's hand and XO-16 in view — like Titanfall's first-person Titan.
+- **BT's voice**: embark, disembark, kills (anything his arsenal hit that died within 4 s), shields
+  down, doomed, core ready/activated, auto-engage; one line at a time.
+- **Ragdoll and gear**: the death ragdoll wears the pilot (same retarget on the ragdoll's bones);
+  gear changes hide Valheim armour in the same frame; armour stays hidden while seated.
+- **HUD names** from Titanfall's `r1_english.txt` ("R-201", "XO-16"); line-based parsing because some
+  values contain escaped quotes.
+- **Titan meter** saved in the character (`m_customData`); a Titan lost to zone unloading (not combat)
+  refunds a full meter.
+- Materials whose maps use another stem (`at_rifle_body` → `at_rifle_col`) now load.
+- Self-test: **83/83 pass, zero errors.**
+
 ## Remaining
-Optional polish: Titan cockpit (first-person) view, pilot-specific Titanfall animations for
-wallrun/slide layered over Valheim's, BT voice lines.
+Multiplayer: other players still see the Viking and a troll-shaped Titan (the mod is client-side).

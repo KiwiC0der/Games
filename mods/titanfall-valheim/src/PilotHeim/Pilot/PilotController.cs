@@ -41,7 +41,13 @@ namespace PilotHeim.Pilot
         public PilotBody Body { get; private set; }
 
         // the Titanfall pilot body needs Valheim's animator and ZNetScene (for the shader), ready by Start
-        private void Start() => Body = PilotBody.Attach(Player);
+        private void Start()
+        {
+            TitanMeter.Load(Player);
+            Body = PilotBody.Attach(Player);
+        }
+
+        private float nextMeterStore;
 
         private void OnDestroy()
         {
@@ -86,6 +92,7 @@ namespace PilotHeim.Pilot
             if (tt == null) return;
             if (PilotHeim.Titan.TitanController.Current == null)
                 TitanMeter.Fraction = Mathf.Min(1f, TitanMeter.Fraction + Time.deltaTime / (tt.BuildTime * Mathf.Max(0.01f, Plugin.TitanBuildTimeScale.Value)));
+            if (Time.time >= nextMeterStore) { nextMeterStore = Time.time + 2f; TitanMeter.Store(Player); }
         }
 
         private void TitanButton()
@@ -199,7 +206,7 @@ namespace PilotHeim.Pilot
             GUI.color = new Color(0f, 0f, 0f, 0.45f);
             GUI.DrawTexture(new Rect(x - 8, y2 - 8, w + 16, 66), Texture2D.whiteTexture);
             GUI.color = Color.white;
-            string gun = a.Weapon != null ? a.Weapon.PrintName.Replace("#WPN_", "").Replace("_SHORT", "") : "-";
+            string gun = a.Weapon != null ? PilotHeim.Data.Localization.Get(a.Weapon.PrintName) : "-";
             GUI.Label(new Rect(x, y2, w, 20), a.Drawn && a.Weapon != null
                 ? $"{gun}   {a.Clip}/{(int)a.Weapon.ClipSize}{(a.Reloading ? "  RELOADING" : "")}"
                 : $"{gun} (holstered - {Plugin.KeyWeaponToggle.Value})");
@@ -231,7 +238,7 @@ namespace PilotHeim.Pilot
             GUI.DrawTexture(new Rect(x - 8, y - 8, w + 16, 136), Texture2D.whiteTexture);
             GUI.color = Color.white;
             var a = tc.Arsenal;
-            GUI.Label(new Rect(x, y, w, 20), $"BT-7274   {(tc.CoreActive ? "BURST CORE" : $"{a.Weapon.PrintName.Replace("#WPN_", "")} {a.Clip}/{(int)a.Weapon.ClipSize}")}{(a.Reloading ? " RELOADING" : "")}");
+            GUI.Label(new Rect(x, y, w, 20), $"BT-7274   {(tc.CoreActive ? "BURST CORE" : $"{PilotHeim.Data.Localization.Get(a.Weapon.PrintName)} {a.Clip}/{(int)a.Weapon.ClipSize}")}{(a.Reloading ? " RELOADING" : "")}");
             GUI.Label(new Rect(x, y + 20, w, 20), "SHIELD"); Bar(new Rect(x + 70, y + 24, w - 70, 10), tc.Shield / Mathf.Max(1f, tc.ShieldMax), new Color(0.4f, 0.8f, 1f));
             GUI.Label(new Rect(x, y + 38, w, 20), tc.Doomed ? "DOOMED" : "HULL"); Bar(new Rect(x + 70, y + 42, w - 70, 10), tc.Body.GetHealth() / tc.MaxHealth, tc.Doomed ? Color.red : new Color(0.9f, 0.9f, 0.9f));
             GUI.Label(new Rect(x, y + 56, w, 20), "DASH"); Bar(new Rect(x + 70, y + 60, w - 70, 10), tc.Motor.Power / 100f, new Color(0.3f, 1f, 0.5f));
@@ -255,5 +262,19 @@ namespace PilotHeim.Pilot
     {
         public static float Fraction;
         public static bool Ready => Fraction >= 1f;
+        private const string Key = "PilotHeim.TitanMeter";
+
+        /// <summary>The meter lives in the character's save (Player.m_customData) so it survives relogging.</summary>
+        public static void Load(Player p)
+        {
+            if (p != null && p.m_customData.TryGetValue(Key, out var v)
+                && float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f))
+                Fraction = UnityEngine.Mathf.Clamp01(f);
+        }
+
+        public static void Store(Player p)
+        {
+            if (p != null) p.m_customData[Key] = Fraction.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 }

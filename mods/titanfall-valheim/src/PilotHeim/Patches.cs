@@ -217,10 +217,25 @@ namespace PilotHeim
             PilotBody.AttachRagdoll(__instance, __instance.m_ragdoll);
         }
 
-        // Wallrun camera tilt.
+        private static float savedNear = -1f;
+
+        // Wallrun camera tilt; inside the Titan, the cockpit view.
         [HarmonyPostfix, HarmonyPatch(typeof(GameCamera), "UpdateCamera")]
         private static void CameraRoll(GameCamera __instance)
         {
+            var titan = PilotHeim.Titan.TitanController.Current;
+            var cam = __instance.m_camera;
+            bool cockpit = titan != null && titan.Phase == PilotHeim.Titan.TitanController.State.Piloted && titan.CockpitView
+                           && titan.Owner == Player.m_localPlayer && !titan.Visual.Locked;
+            if (cockpit && cam != null)
+            {
+                // the hull is clipped by the near plane, like looking out of Titanfall's cockpit
+                if (savedNear < 0f) savedNear = cam.nearClipPlane;
+                cam.nearClipPlane = 1.4f;
+                __instance.transform.position = titan.CockpitEye;
+                return;
+            }
+            if (savedNear > 0f && cam != null) { cam.nearClipPlane = savedNear; savedNear = -1f; }
             var pc = PilotController.Local;
             if (pc == null || !pc.Active || Mathf.Abs(pc.Motor.ViewRoll) < 0.01f) return;
             var tr = __instance.transform;

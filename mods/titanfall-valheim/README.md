@@ -19,8 +19,9 @@ only, no game files.
 | Weapons | R-201, Wingman, EVA-8 (cone blast), Kraber (ballistic bolt) and more from the weapon scripts; exact integer damage falloff; spread, kick, ADS, reloads. Hits are Valheim `HitData`, so resistances, skills and loot work. |
 | Tacticals | Grapple, cloak (hides you from AI senses), stim, pulse blade; frag grenades. |
 | Titan | Meter builds over `titan_build_time`; **V** calls in a 2.5 s hot drop that crushes what's under it; **E** embarks and disembarks; Titan walk/sprint/dash from the Titan set file; XO-16, salvo rockets, electric smoke, core; auto-titan follows or guards and fights; shields, doomed state and ejection. |
-| Visuals | The real BT-7274 (with his own idle/walk/run/sprint/dash animations) and Jack Cooper replacing the Valheim body. Jack is driven by Valheim's animator through a per-bone retarget, so chopping, mining, building, swimming and attacks all still animate. |
-| Sound | Titanfall weapon, movement, grapple, cloak, stim, Titanfall and embark sounds through Valheim's SFX mixer. |
+| Visuals | The real BT-7274 with his own animations (idle, walk/run/sprint, dash, hot drop and kneel, embark, disembark, death) and a first-person cockpit view. Jack Cooper replaces the Valheim body: with the pilot gun out, or wallrunning, sliding, jet-jumping or grappling, he plays Titanfall's pilot animations and holds the real weapon model; holstered, Valheim's animator drives him through a per-bone retarget, so chopping, mining, building, swimming and attacks animate as usual. The death ragdoll wears the pilot too. |
+| Sound | Titanfall weapon, movement, grapple, cloak, stim, Titanfall and embark sounds, and BT-7274's voice (embark, disembark, kills, shields down, doomed, core), through Valheim's SFX mixer. |
+| HUD | Titanfall's own weapon names (from its localization), shields, hull, dash, salvo, smoke and core meters. The Titan meter is saved with your character. |
 
 Without exported assets the mod still works with stand-in visuals and Valheim sounds.
 
@@ -32,9 +33,13 @@ Without exported assets the mod still works with stand-in visuals and Valheim so
 | Q | Tactical (grapple by default) | G | Frag grenade |
 | Z | Draw / holster pilot gun | X | Swap weapon |
 | R | Reload | V | Titanfall / toggle follow-guard |
-| E | Embark / disembark | F8 | Toggle pilot mode |
+| E | Embark / disembark | B | Cockpit / chase view (in the Titan) |
+| F8 | Toggle pilot mode | | |
 
-Holster the gun (Z) to use Valheim weapons, tools and building as normal.
+Holster the gun (Z) to use Valheim weapons, tools and building as normal. While pilot mode is on,
+Q, G and V belong to the pilot (Valheim's autorun, radial menu and auto-pickup are bound to the same
+keys by default), R and X belong to the gun only while it is drawn, and E embarks only next to BT;
+rebinding either side in its own settings turns the overlap off.
 
 ## Setup
 
@@ -54,6 +59,9 @@ Holster the gun (Z) to use Valheim weapons, tools and building as normal.
      the material folders the models use into `assets/materials`, then
      `tools/tf2_textures.py <assets>/materials` to pre-compress them (fast loading).
    - Sounds: Legion+ `--export general.mbnk`, then `tools/tf2_sounds.py <export> <assets>`.
+   - Pilot animations: `tools/tf2_export.py pilot <mlt_hero_jack.mdl> <pilot_light_core.mdl> <assets>`.
+   - Pilot guns: `tools/tf2_weapons.py <scripts/weapons> <vpk dir> <tfvpktool dir> <Legion materials> <assets>`.
+   - HUD names: extract `resource/r1_english.txt` into the data folder.
    - `tools/phm_preview.py` renders an exported mesh to PNG for a quick check.
 
 ## Tools
@@ -65,6 +73,7 @@ Holster the gun (Z) to use Valheim weapons, tools and building as normal.
 | `tools/tf2_export.py` | Writes Unity-space `.phm2` meshes and baked `.pha` clips. |
 | `tools/tf2_sounds.py` | Picks waves per gameplay sound slot. |
 | `tools/tf2_textures.py` | Pre-compresses textures to DXT mip chains (PHTEX). |
+| `tools/tf2_weapons.py` | Exports every pilot weapon's world model and its materials. |
 | `tools/build_native_defaults.py` | Builds engine defaults from the reverse-engineering reports. |
 
 ## Self-test

@@ -33,6 +33,8 @@ namespace PilotHeim
         public static ConfigEntry<KeyCode> KeyOrdnance;
         public static ConfigEntry<KeyCode> KeyTitanfall;
         public static ConfigEntry<KeyCode> KeyEmbark;
+        public static ConfigEntry<KeyCode> KeyCockpitView;
+        public static ConfigEntry<bool> CockpitViewDefault;
         public static ConfigEntry<KeyCode> KeyToggleMod;
         public static ConfigEntry<bool> SelfTest;
         public static ConfigEntry<bool> PilotBodyEnabled;
@@ -66,6 +68,8 @@ namespace PilotHeim
             KeyOrdnance = Config.Bind("Controls", "Ordnance", KeyCode.G, "Throw ordnance.");
             KeyTitanfall = Config.Bind("Controls", "Titanfall", KeyCode.V, "Call in your Titan when the meter is full.");
             KeyEmbark = Config.Bind("Controls", "Embark", KeyCode.E, "Embark / disembark your Titan (Titanfall's Use key).");
+            KeyCockpitView = Config.Bind("Controls", "CockpitView", KeyCode.B, "Inside the Titan: switch between the cockpit (first person) and the chase camera.");
+            CockpitViewDefault = Config.Bind("Visuals", "TitanCockpitView", true, "Start in the cockpit view when embarking (Titanfall is first person).");
             KeyToggleMod = Config.Bind("Controls", "TogglePilot", KeyCode.F8, "Switch between pilot and vanilla Valheim movement.");
             Loadout = Config.Bind("Pilot", "Loadout", "mp_weapon_rspn101,mp_weapon_wingman,mp_weapon_shotgun,mp_weapon_sniper",
                 "Titanfall 2 weapon script names to carry, in swap order (R-201, Wingman, EVA-8, Kraber).");
@@ -98,6 +102,7 @@ namespace PilotHeim
                 PilotHeim.Titan.TitanController.Tuning = titanTuning;
                 PilotHeim.Assets.AssetLibrary.Preload(DataDir.Value, Loadout.Value.Split(','));          // models/clips parse on a worker thread
                 PilotHeim.Assets.TfAudio.Preload(Path.Combine(DataDir.Value, "assets"));
+                PilotHeim.Data.Localization.Load(Path.Combine(DataDir.Value, "resource", "r1_english.txt"));
                 tuning.Report.AddRange(titanTuning.Report);
                 File.WriteAllLines(Path.Combine(Paths.BepInExRootPath, "PilotHeim_tuning.txt"), tuning.Report);
                 Log.LogInfo($"Pilot tuning resolved: {tuning.Report.Count} values (see BepInEx/PilotHeim_tuning.txt)");

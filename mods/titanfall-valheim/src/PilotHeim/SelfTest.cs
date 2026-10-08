@@ -260,6 +260,18 @@ namespace PilotHeim
             // --- T10.. pilot weapons against a real Valheim creature
             yield return Guard(WeaponTests(player, m, pc.Arsenal, input, origin + new Vector3(-25f, 0f, -30f), flat: true), "weapons");
 
+            if (PilotHeim.Data.Localization.Count > 0)
+            {
+                string nm = PilotHeim.Data.Localization.Get(pc.Arsenal?.Loadout.Find(w => w.Id == "mp_weapon_rspn101")?.PrintName);
+                Line($"   HUD weapon name: {nm}");
+                Check("HUD uses Titanfall's weapon names", nm == "R-201" ? 1f : 0f, 1f, 0f);
+            }
+
+            // titan meter is saved with the character
+            TitanMeter.Fraction = 0.42f; TitanMeter.Store(player); TitanMeter.Fraction = 0f; TitanMeter.Load(player);
+            Check("Titan meter survives a relog (character save)", TitanMeter.Fraction, 0.42f, 0.01f);
+            TitanMeter.Fraction = 0f;
+
             // --- T18 key conflicts with Valheim's default bindings
             Check("Q goes to the tactical, not Valheim autorun", Patches.Blocked("AutoRun") ? 1f : 0f, 1f, 0f);
             Check("G goes to the frag, not Valheim's radial menu", Patches.Blocked("OpenRadial") ? 1f : 0f, 1f, 0f);
@@ -641,6 +653,8 @@ namespace PilotHeim
             Check("E embarks (Valheim Use yields) beside the Titan", Patches.Blocked("Use") ? 1f : 0f, 1f, 0f);
             titan.Embark(player);
             yield return new WaitForSeconds(0.5f);
+            if (System.IO.Directory.Exists(System.IO.Path.Combine(PilotHeim.Assets.AssetLibrary.Dir ?? "", "sounds", "bt-embark")))
+                Check("BT greets the pilot on embark", titan.Said.Contains("embark") ? 1f : 0f, 1f, 0f);
             Check("pilot embarked (attached)", player.IsAttached() && titan.Phase == PilotHeim.Titan.TitanController.State.Piloted ? 1f : 0f, 1f, 0f);
             if (titan.Visual.RealModel)
             {
@@ -705,6 +719,19 @@ namespace PilotHeim
             titan.Arsenal.AimProvider = () => { var e = titan.transform.position + Vector3.up * 4.5f; return new Ray(e, ((tch != null ? tch.transform.position + Vector3.up * 2f : e + Vector3.forward) - e).normalized); };
             for (float t0 = 0; t0 < 1f; t0 += Time.deltaTime) { titan.Arsenal.TryFireNow(); yield return null; }
             Check("XO-16 hits troll", hits > 0 ? 1f : 0f, 1f, 0f);
+            // cockpit view: the camera sits at BT's eye height, looking where the pilot aims
+            titan.CockpitView = true;
+            player.m_lookYaw = Quaternion.Euler(0f, Quaternion.LookRotation(tch != null ? Vector3.ProjectOnPlane(tch.transform.position - titan.transform.position, Vector3.up) : Vector3.forward).eulerAngles.y, 0f);
+            player.m_lookPitch = 5f;
+            if (EnvMan.instance != null) { EnvMan.instance.m_debugTimeOfDay = true; EnvMan.instance.m_debugTime = 0.5f; }
+            yield return new WaitForSeconds(0.8f);
+            yield return new WaitForEndOfFrame();
+            float camGap = Vector3.Distance(GameCamera.instance.transform.position, titan.CockpitEye);
+            Check("cockpit camera at BT's eye (m)", camGap < 0.3f ? 1f : 0f, 1f, 0f);
+            string cshot = System.IO.Path.Combine(Paths.BepInExRootPath, "PilotHeim_cockpit.png");
+            ScreenCapture.CaptureScreenshot(cshot);
+            yield return new WaitForSeconds(0.4f);
+            Line($"   cockpit screenshot: {cshot} (camera {camGap:0.00} m from the eye)");
             Line($"   XO-16: {hits} hits in 1 s (fire_rate {titan.Arsenal.Weapon.FireRate})");
             titan.Arsenal.AimProvider = null;
             titan.Arsenal.OnHit = null;
@@ -740,6 +767,12 @@ namespace PilotHeim
             bool hurt = ech == null || !ech.m_nview.IsValid() || ech.GetHealth() < ehp;
             Line($"   auto-titan: target {(titan.AiTarget != null ? titan.AiTarget.name : "none")}, troll hp {ehp:0} -> {(ech != null && ech.m_nview.IsValid() ? ech.GetHealth().ToString("0") : "dead")} {titan.AiDebug}");
             Check("auto-titan engages enemies", hurt ? 1f : 0f, 1f, 0f);
+            if (System.IO.Directory.Exists(System.IO.Path.Combine(PilotHeim.Assets.AssetLibrary.Dir ?? "", "sounds", "bt-kill")))
+            {
+                Line($"   BT said: {string.Join(", ", titan.Said)}");
+                Check("BT calls out the kill", ech == null || !ech.m_nview.IsValid() ? (titan.Said.Contains("kill") ? 1f : 0f) : 1f, 1f, 0f);
+                Check("BT acknowledges the disembark", titan.Said.Contains("disembark") ? 1f : 0f, 1f, 0f);
+            }
             if (enemy != null) Destroy(enemy);
 
             // titan death: eject + cleanup
@@ -751,6 +784,7 @@ namespace PilotHeim
             titan.Body.Damage(kill);
             yield return new WaitForSeconds(3.0f);
             Check("titan destroyed on death", PilotHeim.Titan.TitanController.Current == null ? 1f : 0f, 1f, 0f);
+            Check("a destroyed Titan does not refund the meter", TitanMeter.Fraction < 0.05f ? 1f : 0f, 1f, 0f);
             Check("pilot ejected on titan death", !player.IsAttached() ? 1f : 0f, 1f, 0f);
             yield return new WaitForSeconds(3f);
             m.Override = input;

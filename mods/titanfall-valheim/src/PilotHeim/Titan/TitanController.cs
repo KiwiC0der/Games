@@ -41,6 +41,46 @@ namespace PilotHeim.Titan
         public int Segments => Mathf.Max(1, Mathf.RoundToInt(Tuning.Health / Tuning.HealthPerSegment));
         public bool Doomed => Body != null && Body.GetHealth() <= Tuning.HealthDoomed;
 
+        // ------------------------------------------------------------- BT's voice
+        private float voiceFreeAt, lastEngageLine = -100f;
+        private bool wasDoomed, coreReadySaid;
+        private readonly Dictionary<Character, float> recentlyHit = new Dictionary<Character, float>();
+        public string LastLine { get; private set; }
+        public readonly HashSet<string> Said = new HashSet<string>();
+
+        /// <summary>One BT line at a time, with a short gap; returns false if he is still talking or has no line.</summary>
+        public bool Say(string slot, bool urgent = false)
+        {
+            if (!urgent && Time.time < voiceFreeAt) return false;
+            if (!PilotHeim.Assets.TfAudio.Play("bt:" + slot, transform.position + Vector3.up * 4f, 1f, 80f)) return false;
+            voiceFreeAt = Time.time + 3.5f;
+            LastLine = slot; Said.Add(slot);
+            return true;
+        }
+
+        private void UpdateVoice()
+        {
+            // kills: anything BT hit in the last few seconds that has died (or already despawned)
+            if (recentlyHit.Count > 0)
+            {
+                bool kill = false;
+                var stale = new List<Character>();
+                foreach (var kv in recentlyHit)
+                {
+                    bool gone = kv.Key == null || kv.Key.IsDead();
+                    if (gone) { if (Time.time - kv.Value < 4f) kill = true; stale.Add(kv.Key); }
+                    else if (Time.time - kv.Value > 4f) stale.Add(kv.Key);
+                }
+                foreach (var c in stale) recentlyHit.Remove(c);
+                if (kill) Say("kill");
+            }
+            bool doomed = Doomed;
+            if (doomed && !wasDoomed) Say("doomed", true);
+            wasDoomed = doomed;
+            if (CoreMeter >= 1f && !coreReadySaid && !CoreActive) coreReadySaid = Say("core_ready");
+            if (CoreMeter < 1f) coreReadySaid = false;
+        }
+
         private Vector3 dropFrom, dropTo;
         private float dropStart, lastDamaged = -100f, nextAiThink, salvoNext;
         private int salvoLeft;
@@ -48,6 +88,10 @@ namespace PilotHeim.Titan
         private Transform cockpit, chestGun;
         private TitanVisual visual;
         public TitanVisual Visual => visual;
+        /// <summary>First-person cockpit camera while piloted (toggle with the cockpit-view key).</summary>
+        public bool CockpitView;
+        /// <summary>Cockpit eye: the Titan set's stand viewheight above the feet, a little ahead of the hull centre.</summary>
+        public Vector3 CockpitEye => transform.position + Vector3.up * (Tuning.EyeHeight * U) + transform.forward * 0.35f;
         private LineRenderer beacon;
         private Vector3 inMove, inLook = Vector3.forward;
         private bool inRun, dashQueued;
@@ -106,6 +150,7 @@ namespace PilotHeim.Titan
             Arsenal = new PilotArsenal(owner, Motor, pilotTuning, weapons, new[] { "mp_titanweapon_xo16_shorty" },
                                        PilotArsenal.TacticalKind.Grapple, Plugin.CampaignWeaponProfile.Value, null, null);
             Arsenal.Drawn = true;
+            Arsenal.HitCharacter += c => { if (c != null && c != Body) recentlyHit[c] = Time.time; };
             Arsenal.MuzzleProvider = () => chestGun.position;
             Arsenal.IgnoreRoot = transform;
             salvoDef = WeaponDef.Load(weapons, "mp_titanweapon_salvo_rockets", Plugin.CampaignWeaponProfile.Value);
@@ -144,6 +189,8 @@ namespace PilotHeim.Titan
 
             UpdateSalvo();
             UpdateSmokes(dt);
+            UpdateVoice();
+            lastAiTarget = aiTarget;
 
             if (Phase == State.Piloted)
             {
@@ -155,6 +202,7 @@ namespace PilotHeim.Titan
                 if (input && Input.GetKeyDown(Plugin.KeyTactical.Value)) DeploySmoke();
                 if (input && Input.GetKeyDown(Plugin.KeyTitanfall.Value) && CoreMeter >= 1f) StartCore();
                 if (input && Input.GetKeyDown(Plugin.KeyEmbark.Value)) Disembark(false);
+                if (input && Input.GetKeyDown(Plugin.KeyCockpitView.Value)) CockpitView = !CockpitView;
                 Owner.m_maxAirAltitude = Owner.transform.position.y;
             }
             else
@@ -265,6 +313,7 @@ namespace PilotHeim.Titan
             if (cam != null) { savedCamMax = cam.m_maxDistance; savedCamDist = cam.m_distance; cam.m_maxDistance = 14f; cam.m_distance = 10f; }
             inLook = p.m_lookDir;
             Owner.Message(MessageHud.MessageType.Center, "Pilot embarked");
+            CockpitView = Plugin.CockpitViewDefault.Value;
             if (visual.RealModel)
             {
                 // kneeling BT stands up with the pilot inside; a standing BT kneels on the pilot's side first
@@ -273,6 +322,7 @@ namespace PilotHeim.Titan
                 visual.PlayAction(visual.Kneeling ? "embark_kneel" : "embark_" + side);
             }
             Effects.Sound("titan:embark", transform.position);
+            Say("embark", true);
         }
 
         public void Disembark(bool eject)
@@ -291,6 +341,7 @@ namespace PilotHeim.Titan
             RestoreCamera();
             Arsenal.RestoreFov();
             Effects.Sound("titan:disembark", transform.position);
+            if (!eject) Say("disembark", true);
             PilotController.Local?.Body?.HideNow();               // the renderer loop above re-enabled Valheim's body too
             visual.PlayAction("disembark");
         }
@@ -373,6 +424,7 @@ namespace PilotHeim.Titan
         private void StartCore()
         {
             CoreMeter = 0f;
+            Say("core", true);
             CoreUntil = Motor.Time + coreDef.F("core_duration", 5.5f);
             Owner.Message(MessageHud.MessageType.Center, "Burst Core online");
         }
@@ -402,6 +454,7 @@ namespace PilotHeim.Titan
             }
             if (aiTarget != null && !aiTarget.IsDead())
             {
+                if (aiTarget != lastAiTarget && Time.time - lastEngageLine > 20f && Say("engage")) lastEngageLine = Time.time;
                 Arsenal.AimProvider = AiRay;
                 Arsenal.TryFireNow();
                 if (SalvoAmmo >= salvoDef.ClipSize && Random.value < 0.01f) FireSalvo();
@@ -411,6 +464,8 @@ namespace PilotHeim.Titan
 
         public Character AiTarget => aiTarget;
         public string AiDebug = "";
+
+        private Character lastAiTarget;
 
         private Ray AiRay()
         {
@@ -442,6 +497,7 @@ namespace PilotHeim.Titan
             if (total <= 0f || Shield <= 0f) return;
             float absorbed = Mathf.Min(Shield, total);
             Shield -= absorbed;
+            if (Shield <= 0f) Say("critical", true);              // shields down
             float keep = (total - absorbed) / total;
             hit.m_damage.Modify(keep);
         }
@@ -465,6 +521,9 @@ namespace PilotHeim.Titan
 
         private void OnDestroy()
         {
+            // a Titan that was not destroyed in combat (its zone unloaded far behind the pilot, the
+            // world closed) is still owed to the pilot: the meter comes back full
+            if (!dying && Phase != State.Dropping) { TitanMeter.Fraction = 1f; TitanMeter.Store(Owner); }
             if (Phase == State.Piloted && Owner != null) { Owner.StopDoodadControl(); Owner.AttachStop(); RestoreCamera(); }
             Arsenal?.Destroy();
             if (beacon) Destroy(beacon.gameObject);

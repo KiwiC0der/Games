@@ -39,6 +39,15 @@ SLOTS = {
     "titan:embark": [r"^bt_embark_casual_behind_2ch", r"^bt_embark_casual"],
     "titan:disembark": [r"^bt_disembark_1p"],
     "titan:dash": [r"^heavy_titan_dash_2ch", r"^light_titan_dash"],
+    # BT-7274's voice (dry takes only; _L2/_L3 are the radio-filtered layers)
+    "bt:embark": [r"^diag_gs_titanbt_embark_\d+[a-z]?$"],
+    "bt:disembark": [r"^diag_gs_titanbt_disembark_\d+[a-z]?$"],
+    "bt:kill": [r"^diag_gs_titanbt_elimtarget_\d+[a-z]?$"],
+    "bt:critical": [r"^diag_gs_titanbt_briefcriticaldamage_\d+[a-z]?$"],
+    "bt:doomed": [r"^diag_gs_titanbt_doomstate_\d+[a-z]?$"],
+    "bt:core_ready": [r"^diag_gs_titanbt_coreburstready_\d+[a-z]?$", r"^diag_gs_titanbt_coreready_\d+[a-z]?$"],
+    "bt:core": [r"^diag_gs_titanbt_coreburstactivated_\d+[a-z]?$", r"^diag_gs_titanbt_coreactivated_\d+[a-z]?$"],
+    "bt:engage": [r"^diag_gs_titanbt_autoengagegrunt_\d+[a-z]?$"],
 }
 
 
@@ -61,11 +70,13 @@ def main(src, assets):
                 break
         folder = os.path.join(out_root, slot.replace(":", "-"))
         if os.path.isdir(folder):
-            shutil.rmtree(folder)
+            # empty and reuse (removing the folder itself fails while anything holds a handle on it)
+            for f in os.listdir(folder):
+                os.remove(os.path.join(folder, f))
         if not picked:
             print(f"  {slot:36s} -- no match")
             continue
-        os.makedirs(folder)
+        os.makedirs(folder, exist_ok=True)
         for n in picked[:MAX_VARIANTS]:
             shutil.copy2(waves[n], os.path.join(folder, os.path.basename(waves[n])))
             total += 1
