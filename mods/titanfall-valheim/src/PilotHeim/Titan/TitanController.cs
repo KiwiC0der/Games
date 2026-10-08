@@ -291,6 +291,7 @@ namespace PilotHeim.Titan
             RestoreCamera();
             Arsenal.RestoreFov();
             Effects.Sound("titan:disembark", transform.position);
+            PilotController.Local?.Body?.HideNow();               // the renderer loop above re-enabled Valheim's body too
             visual.PlayAction("disembark");
         }
 

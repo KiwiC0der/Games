@@ -167,6 +167,11 @@ namespace PilotHeim
             yield return new WaitForFixedUpdate(); yield return new WaitForFixedUpdate();
             float boosted = m.HorizontalSpeed;
             Check("slide started", m.Sliding ? 1f : 0f, 1f, 0f);
+            if (pc.Body?.Motion != null)
+            {
+                for (int k = 0; k < 20 && pc.Body.Motion.Weight < 0.95f; k++) yield return null;
+                Check("pilot plays Titanfall's slide animation", pc.Body.Motion.Current == "slide" ? 1f : 0f, 1f, 0f);
+            }
             Check("slide boost speed (u/s)", boosted, Mathf.Min(before + t.SlideSpeedBoost, t.SlideSpeedBoostCap), 0.04f);
             float slideStart = Time.time;
             while (m.Sliding && Time.time - slideStart < 6f) yield return null;
@@ -181,14 +186,21 @@ namespace PilotHeim
             yield return new WaitForSeconds(1.0f);
             m.QueueJump();
             float wrStart = -1f, wrEnd = -1f, wrMaxH = 0f, wrVyAtStart = 0f;
+            string wrClip = null; float wrWeight = 0f;
             for (float tt = 0; tt < 3.5f; tt += Time.fixedDeltaTime)
             {
                 if (m.Wallrunning && wrStart < 0f) { wrStart = Time.time; wrVyAtStart = m.Vel.y; }
                 if (m.Wallrunning) wrMaxH = Mathf.Max(wrMaxH, m.HorizontalSpeed);
+                if (m.Wallrunning && Time.time - wrStart > 0.4f && pc.Body?.Motion != null) { wrClip = pc.Body.Motion.Current; wrWeight = pc.Body.Motion.Weight; }
                 if (!m.Wallrunning && wrStart >= 0f && wrEnd < 0f) wrEnd = Time.time;
                 yield return new WaitForFixedUpdate();
             }
             Check("wallrun engaged", wrStart >= 0f ? 1f : 0f, 1f, 0f);
+            if (pc.Body?.Motion != null)
+            {
+                Line($"   pilot clip on the wall: {wrClip} (weight {wrWeight:0.00})");
+                Check("pilot plays Titanfall's wallrun animation", wrClip != null && wrClip.StartsWith("wallrun") && wrWeight > 0.9f ? 1f : 0f, 1f, 0f);
+            }
             if (wrStart >= 0f)
             {
                 if (wrEnd < 0f) wrEnd = Time.time;
@@ -247,6 +259,12 @@ namespace PilotHeim
 
             // --- T10.. pilot weapons against a real Valheim creature
             yield return Guard(WeaponTests(player, m, pc.Arsenal, input, origin + new Vector3(-25f, 0f, -30f), flat: true), "weapons");
+
+            // --- T18 key conflicts with Valheim's default bindings
+            Check("Q goes to the tactical, not Valheim autorun", Patches.Blocked("AutoRun") ? 1f : 0f, 1f, 0f);
+            Check("G goes to the frag, not Valheim's radial menu", Patches.Blocked("OpenRadial") ? 1f : 0f, 1f, 0f);
+            Check("V goes to Titanfall, not auto-pickup", Patches.Blocked("AutoPickup") ? 1f : 0f, 1f, 0f);
+            Check("E stays Valheim's Use with no Titan in reach", Patches.Blocked("Use") ? 0f : 1f, 1f, 0f);
 
             // --- T19 Titanfall pilot body
             yield return Guard(BodyTests(player, m, pc, input, origin + new Vector3(-20f, 0f, -20f)), "body");
@@ -497,6 +515,18 @@ namespace PilotHeim
             Check("Valheim animation drives the pilot (hand moves while running)", (hMax - hMin).magnitude > 0.1f ? 1f : 0f, 1f, 0f);
             yield return Settle(player, input);
 
+            // pilot gun in hand: the weapon's world model, gripped at r_hand_ik, muzzle feeding the tracers
+            var arsenal = pc.Arsenal;
+            if (arsenal != null && body.Motion != null)
+            {
+                arsenal.Current = Mathf.Max(0, arsenal.Loadout.FindIndex(w => w.Id == "mp_weapon_rspn101"));
+                arsenal.Drawn = true;
+                yield return new WaitForSeconds(0.6f);
+                Check("R-201 world model in the pilot's hand", body.Motion.HasGun ? 1f : 0f, 1f, 0f);
+                Check("tracers leave the gun's muzzle", arsenal.MuzzleProvider != null ? 1f : 0f, 1f, 0f);
+                Check("gun drawn: Titanfall idle animation", body.Motion.Current == "idle" && body.Motion.Weight > 0.95f ? 1f : 0f, 1f, 0f);
+            }
+
             // front view screenshot: borrow the camera for one frame
             var cam = GameCamera.instance;
             var camT = cam.transform;
@@ -512,6 +542,45 @@ namespace PilotHeim
             yield return new WaitForSeconds(0.4f);
             cam.enabled = true;
             Line($"   screenshot: {shot}");
+            if (arsenal != null) arsenal.Drawn = false;
+            yield return new WaitForSeconds(0.5f);
+            if (body.Motion != null) Check("holstered: back to Valheim animation", body.Motion.Weight < 0.05f && !body.Motion.HasGun ? 1f : 0f, 1f, 0f);
+
+            // gear change: Valheim re-creates armour meshes; none may show, not even for a frame
+            var inv = player.GetInventory();
+            var chest = inv.AddItem("ArmorLeatherChest", 1, 1, 0, 0L, "", false);
+            int flashes = 0;
+            if (chest != null)
+            {
+                player.EquipItem(chest, true);
+                for (int f = 0; f < 10; f++)
+                {
+                    yield return new WaitForEndOfFrame();
+                    foreach (var r in player.m_visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                        if (r.enabled && r.isVisible && !r.transform.IsChildOf(body.Root)) flashes++;
+                }
+                player.UnequipItem(chest, false);
+                inv.RemoveItem(chest);
+            }
+            Check("equipping armour never shows the Valheim mesh", chest != null && flashes == 0 ? 1f : 0f, 1f, 0f);
+
+            // death: the ragdoll wears the pilot too
+            player.CreateDeathEffects();
+            yield return new WaitForSeconds(1.2f);
+            var rag = player.m_ragdoll;
+            var rbody = rag != null ? rag.GetComponent<PilotBody>() : null;
+            Check("death ragdoll gets the pilot body", rbody != null && rbody.Ready ? 1f : 0f, 1f, 0f);
+            if (rbody != null && rbody.Ready)
+            {
+                int vik = 0;
+                foreach (var r in rag.GetComponentsInChildren<SkinnedMeshRenderer>(true)) if (r.enabled && !r.transform.IsChildOf(rbody.Root)) vik++;
+                Transform jh = null, vh = null;
+                foreach (var t2 in rag.GetComponentsInChildren<Transform>(true)) { if (t2.name == "def_c_hip") jh = t2; if (t2.name == "Hips") vh = t2; }
+                float gap = jh != null && vh != null ? Vector3.Distance(jh.position, vh.position) : 99f;
+                Line($"   ragdoll: viking meshes shown {vik}, pilot hips {gap:0.00} m from the ragdoll hips");
+                Check("ragdoll: Viking hidden, pilot follows the physics bones", vik == 0 && gap < 0.3f ? 1f : 0f, 1f, 0f);
+            }
+            if (rag != null) Destroy(rag.gameObject);
         }
 
         private IEnumerator TitanTests(Player player, PilotMotor m, PilotController pc, PilotMotor.InputState input, Vector3 ground)
@@ -569,6 +638,7 @@ namespace PilotHeim
             yield return Teleport(player, titan.transform.position + titan.transform.right * 3f + Vector3.up * 0.3f);
             yield return new WaitForSeconds(0.3f);
             Check("can embark beside titan", titan.CanEmbark(player) ? 1f : 0f, 1f, 0f);
+            Check("E embarks (Valheim Use yields) beside the Titan", Patches.Blocked("Use") ? 1f : 0f, 1f, 0f);
             titan.Embark(player);
             yield return new WaitForSeconds(0.5f);
             Check("pilot embarked (attached)", player.IsAttached() && titan.Phase == PilotHeim.Titan.TitanController.State.Piloted ? 1f : 0f, 1f, 0f);
@@ -605,6 +675,8 @@ namespace PilotHeim
             Check("titan walk speed (u/s)", titan.Motor.Vel.magnitude, tt.Speed, 0.05f);
             if (titan.Visual.RealModel) { Line($"   BT clip while walking: {titan.Visual.Anim.Current} x{titan.Visual.Anim.Rate:0.00}"); Check("BT plays its walk clip", titan.Visual.Anim.Current == "walk_f" ? 1f : 0f, 1f, 0f); }
             for (float t0 = 0; t0 < 4f; t0 += Time.fixedDeltaTime) { titan.Drive(fwd, fwd, true); yield return new WaitForFixedUpdate(); }
+            if (Mathf.Abs(titan.Motor.Vel.magnitude - tt.SprintSpeed) > tt.SprintSpeed * 0.05f)
+                Line($"   titan sprint diag: vel {titan.Motor.Vel} ground {titan.Motor.OnGround} normal {titan.Motor.GroundNormal} sprinting {titan.Motor.Sprinting} locked {titan.Visual.Locked} action {titan.Visual.Action} ads {titan.Arsenal.AdsFrac:0.00} pos {titan.transform.position - runway}");
             Check("titan sprint speed (u/s)", titan.Motor.Vel.magnitude, tt.SprintSpeed, 0.05f);   // along the ground plane
             if (titan.Visual.RealModel) { Line($"   BT clip while sprinting: {titan.Visual.Anim.Current} x{titan.Visual.Anim.Rate:0.00}"); Check("BT plays its sprint clip", titan.Visual.Anim.Current == "sprint_f" ? 1f : 0f, 1f, 0f); }
             float powerBefore = titan.Motor.Power;

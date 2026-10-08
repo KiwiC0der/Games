@@ -16,6 +16,10 @@ namespace PilotHeim.Pilot
     {
         public Player Player;
         public bool Ready { get; private set; }
+        /// <summary>True for the copy that follows the death ragdoll instead of the live animator.</summary>
+        public bool IsRagdoll { get; private set; }
+        private Transform srcRoot;                                  // Valheim's "Visual" (or the ragdoll's equivalent)
+        private Dictionary<string, Transform> ragdollBones;
         public Transform Root { get; private set; }
 
         private float nextHide;
@@ -57,11 +61,41 @@ namespace PilotHeim.Pilot
             return body;
         }
 
+        /// <summary>The pilot body for the death ragdoll: the same retarget, driven by the ragdoll's physics bones.</summary>
+        public static PilotBody AttachRagdoll(Player p, Ragdoll ragdoll)
+        {
+            if (AssetLibrary.Pilot == null || ragdoll == null || p.m_animator == null || p.m_animator.avatar == null) return null;
+            var body = ragdoll.gameObject.AddComponent<PilotBody>();
+            body.Player = p; body.IsRagdoll = true;
+            body.ragdollBones = new Dictionary<string, Transform>();
+            foreach (var t in ragdoll.GetComponentsInChildren<Transform>(true)) body.ragdollBones[t.name] = t;
+            try { body.Build(); }
+            catch (System.Exception e) { Plugin.Log.LogError("Pilot ragdoll body failed: " + e); body.Teardown(); Destroy(body); return null; }
+            return body;
+        }
+
+        /// <summary>Valheim bone for a humanoid slot: the live animator's, or the ragdoll bone of the same name.</summary>
+        private Transform SrcBone(HumanBodyBones hb)
+        {
+            if (!IsRagdoll) return Player.m_animator.GetBoneTransform(hb);
+            string human = hb.ToString();
+            foreach (var h in Player.m_animator.avatar.humanDescription.human)
+                if (h.humanName.Replace(" ", "") == human) return ragdollBones.TryGetValue(h.boneName, out var t) ? t : null;
+            return null;
+        }
+
         private void Build()
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var visual = Player.m_visual.transform;
-            var bones = AssetLibrary.Pilot.Build(visual, TfMaterials.Get, out var smr);
+            if (IsRagdoll)
+            {
+                var hips = SrcBone(HumanBodyBones.Hips);
+                if (hips == null) throw new System.Exception("ragdoll has no hips");
+                srcRoot = hips.parent != null && hips.parent.parent != null ? hips.parent.parent : transform;   // Visual/Armature/Hips
+            }
+            else srcRoot = Player.m_animator.transform;
+            var bones = AssetLibrary.Pilot.Build(srcRoot, TfMaterials.Get, out var smr);
+            jackBones = bones;
             Root = bones[0].parent;
             Root.localPosition = Vector3.zero; Root.localRotation = Quaternion.identity; Root.localScale = Vector3.one;
             jackRenderers.AddRange(Root.GetComponentsInChildren<Renderer>(true));
@@ -73,7 +107,7 @@ namespace PilotHeim.Pilot
 
             // Valheim's T-pose (from its humanoid avatar description), in the animator root's space
             var an = Player.m_animator;
-            var vRoot = an.transform;
+            var vRoot = srcRoot;
             var tposeLocal = new Dictionary<string, Quaternion>();
             foreach (var sb in an.avatar.humanDescription.skeleton) tposeLocal[sb.name] = sb.rotation;
             Quaternion VTPose(Transform t)
@@ -88,7 +122,7 @@ namespace PilotHeim.Pilot
             {
                 var hb = HumanBodyBoneFromName(Map[i, 0]);
                 if (hb == HumanBodyBones.LastBone || !byName.TryGetValue(Map[i, 1], out var jt)) continue;
-                var vt = an.GetBoneTransform(hb);
+                var vt = SrcBone(hb);
                 if (vt == null) continue;
                 pairs.Add(new Pair
                 {
@@ -97,7 +131,7 @@ namespace PilotHeim.Pilot
                 });
             }
             map = pairs.ToArray();
-            vHips = an.GetBoneTransform(HumanBodyBones.Hips);
+            vHips = SrcBone(HumanBodyBones.Hips);
             jHips = byName["def_c_hip"];
             // hip height ratio scales the root motion of the hips (Valheim T-pose hip height vs the pilot's)
             Vector3 vHipT = Vector3.zero;
@@ -106,11 +140,14 @@ namespace PilotHeim.Pilot
             float jh = Mathf.Max(0.1f, Root.InverseTransformPoint(jHips.position).y);
             hipScale = jh / vh;
             // Valheim culls bone updates when its (now hidden) body is not rendered; the pilot needs them
-            savedCulling = an.cullingMode;
-            an.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            if (!IsRagdoll) { savedCulling = an.cullingMode; an.cullingMode = AnimatorCullingMode.AlwaysAnimate; }
             Ready = true;
+            if (IsRagdoll) { HideNow(); Plugin.Log.LogInfo("Pilot body follows the death ragdoll"); return; }
             Plugin.Log.LogInfo($"Pilot body built in {sw.ElapsedMilliseconds} ms: Jack Cooper retargeted from Valheim ({map.Length} bones mapped, {bones.Length} bones, {smr.sharedMesh.vertexCount} verts, hip scale {hipScale:0.00})");
         }
+
+        private Transform[] jackBones;
+        public PilotMotionLayer Motion { get; private set; }
 
         private struct Pair { public Transform V, J; public Quaternion Offset; }
         private Pair[] map;
@@ -130,7 +167,7 @@ namespace PilotHeim.Pilot
         /// <summary>Per-bone rotation retarget: pilot = valheim * inverse(valheim T-pose) * pilot T-pose.</summary>
         private void Retarget()
         {
-            var vRoot = Player.m_animator.transform;
+            var vRoot = srcRoot;
             Quaternion vInv = Quaternion.Inverse(vRoot.rotation);
             Quaternion jRot = Root.rotation;
             for (int i = 0; i < map.Length; i++)
@@ -174,22 +211,35 @@ namespace PilotHeim.Pilot
         private void LateUpdate()
         {
             if (!Ready || Player == null) return;
+            if (IsRagdoll) { Retarget(); return; }
             bool want = Plugin.Enabled.Value;                       // F8 (pilot mode off) brings the Viking back
             if (want != showingJack) { showingJack = want; Root.gameObject.SetActive(want); if (!want) RestoreValheimBody(); }
             if (!want) return;
             Retarget();
+            if (Motion == null && jackBones != null && Player.GetComponent<PilotController>() is PilotController pcx)
+                Motion = new PilotMotionLayer(pcx, jackBones, Root, AssetLibrary.PilotClips);
+            Motion?.Apply(Time.deltaTime);
             if (Time.time >= nextHide) { nextHide = Time.time + 0.25f; HideValheimBody(); }
         }
 
         /// <summary>Hide Valheim's skinned body, hair, beard and armour (re-created whenever gear changes).</summary>
         private void HideValheimBody()
         {
-            foreach (var r in Player.m_visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            var scope = IsRagdoll ? transform : Player.m_visual.transform;
+            foreach (var r in scope.GetComponentsInChildren<SkinnedMeshRenderer>(true))
                 if (r.enabled && !jackRenderers.Contains(r) && !Embarked()) { r.enabled = false; hidden.Add(r); }
         }
 
-        // the Titan hides/restores every renderer on embark; don't fight it
-        private bool Embarked() => Player.IsAttached();
+        /// <summary>Hide right away (gear changed, or the Titan just showed every renderer again).</summary>
+        public void HideNow() { if (Ready && showingJack) HideValheimBody(); }
+
+        // inside the Titan every pilot renderer is hidden by the Titan itself; only that is left alone
+        private bool Embarked()
+        {
+            if (IsRagdoll) return false;
+            var t = PilotHeim.Titan.TitanController.Current;
+            return t != null && t.Owner == Player && t.Phase == PilotHeim.Titan.TitanController.State.Piloted;
+        }
 
         private void RestoreValheimBody()
         {
@@ -199,9 +249,10 @@ namespace PilotHeim.Pilot
 
         private void Teardown()
         {
+            Motion?.Destroy(); Motion = null;
             if (Root != null) Destroy(Root.gameObject);
             RestoreValheimBody();
-            if (Ready && Player != null && Player.m_animator != null) Player.m_animator.cullingMode = savedCulling;
+            if (Ready && !IsRagdoll && Player != null && Player.m_animator != null) Player.m_animator.cullingMode = savedCulling;
             Ready = false;
         }
 

@@ -62,7 +62,20 @@ namespace PilotHeim.Assets
         {
             string file = Path.Combine(Root ?? "", mat, mat + "_" + suffix + ".png");
             if (texCache.TryGetValue(file, out var t)) return t;
-            t = FromPhtex(Path.ChangeExtension(file, ".phtex"), mat + "_" + suffix, linear);
+            string phtex = Path.ChangeExtension(file, ".phtex");
+            if (!File.Exists(phtex) && !Preloaded.ContainsKey(phtex))
+            {
+                // some materials name their maps after another stem (at_rifle_body -> at_rifle_col)
+                string dir = Path.Combine(Root ?? "", mat);
+                if (Directory.Exists(dir))
+                {
+                    var alt = Directory.GetFiles(dir, "*_" + suffix + ".phtex");
+                    if (alt.Length > 0) phtex = alt[0];
+                    var altPng = Directory.GetFiles(dir, "*_" + suffix + ".png");
+                    if (alt.Length == 0 && altPng.Length > 0) file = altPng[0];
+                }
+            }
+            t = FromPhtex(phtex, mat + "_" + suffix, linear);
             if (t != null) { TexturesLoaded++; texCache[file] = t; return t; }
             if (File.Exists(file))
             {
@@ -92,7 +105,7 @@ namespace PilotHeim.Assets
                 if (m.HasProperty("_MainTex")) m.SetTexture("_MainTex", col);
                 if (m.HasProperty("_Color")) m.SetColor("_Color", Color.white);
             }
-            else Missing++;
+            else { Missing++; Plugin.Log.LogWarning("Titanfall material without colour texture: " + name); }
             var nml = Tex(name, "nml", true);
             if (nml != null && m.HasProperty("_BumpMap")) { m.SetTexture("_BumpMap", nml); m.EnableKeyword("_NORMALMAP"); }
             var ilm = Tex(name, "ilm", false);

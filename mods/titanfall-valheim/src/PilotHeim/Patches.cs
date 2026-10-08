@@ -149,6 +149,74 @@ namespace PilotHeim
             return false;
         }
 
+        // Titanfall keys win over the Valheim actions bound to the same keys while the pilot is active:
+        // Q autorun, G radial menu, V auto-pickup always; R hide / X sit only while the gun is drawn;
+        // E use only when BT is in reach (Titanfall's embark is the use key).
+        [HarmonyPrefix, HarmonyPatch(typeof(ZInput), "TryGetButtonState")]
+        private static bool InputGuard(string name, ref bool __result)
+        {
+            if (!Blocked(name)) return true;
+            __result = false;
+            return false;
+        }
+
+        internal static bool Blocked(string name)
+        {
+            var pc = PilotController.Local;
+            if (pc == null || pc.Player == null || !Plugin.Enabled.Value) return false;
+            KeyCode key;
+            switch (name)
+            {
+                case "AutoRun": key = Plugin.KeyTactical.Value; break;
+                case "OpenRadial": key = Plugin.KeyOrdnance.Value; break;
+                case "AutoPickup": key = Plugin.KeyTitanfall.Value; break;
+                case "Hide": if (pc.Arsenal == null || !pc.Arsenal.Drawn) return false; key = Plugin.KeyReload.Value; break;
+                case "Sit": if (pc.Arsenal == null || !pc.Arsenal.Drawn) return false; key = Plugin.KeyWeaponSwap.Value; break;
+                case "Use":
+                    var t = PilotHeim.Titan.TitanController.Current;
+                    if (t == null || !(t.CanEmbark(pc.Player) || t.Phase == PilotHeim.Titan.TitanController.State.Piloted)) return false;
+                    key = Plugin.KeyEmbark.Value; break;
+                default: return false;
+            }
+            if (name != "Use" && name != "Hide" && name != "Sit" && !pc.Active) return false;
+            return BoundTo(name, key);
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<string, string> pathCache = new System.Collections.Generic.Dictionary<string, string>();
+        private static float pathCacheTime;
+
+        /// <summary>True if Valheim's button is (still) bound to this key; a rebind on either side disables the guard.</summary>
+        private static bool BoundTo(string name, KeyCode key)
+        {
+            if (Time.unscaledTime > pathCacheTime) { pathCache.Clear(); pathCacheTime = Time.unscaledTime + 2f; }
+            if (!pathCache.TryGetValue(name, out var path))
+            {
+                var def = ZInput.instance != null ? ZInput.instance.GetButtonDef(name) : null;
+                path = def != null ? (def.GetActionPath() ?? "") : "";
+                pathCache[name] = path;
+            }
+            string k = key.ToString();
+            if (k.StartsWith("Alpha")) k = k.Substring(5);
+            return path.EndsWith("/" + k, System.StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Gear changes re-create Valheim's armour meshes: hide them at once (no one-frame flash).
+        [HarmonyPostfix, HarmonyPatch(typeof(VisEquipment), "UpdateEquipmentVisuals")]
+        private static void GearChanged(VisEquipment __instance)
+        {
+            var pc = PilotController.Local;
+            if (pc != null && pc.Body != null && pc.Player != null && __instance == pc.Player.m_visEquipment) pc.Body.HideNow();
+        }
+
+        // Death: the Viking ragdoll gets the pilot body too.
+        [HarmonyPostfix, HarmonyPatch(typeof(Player), "CreateDeathEffects")]
+        private static void PilotRagdoll(Player __instance)
+        {
+            var pc = PilotController.Local;
+            if (pc == null || pc.Body == null || __instance != pc.Player || !Plugin.Enabled.Value) return;
+            PilotBody.AttachRagdoll(__instance, __instance.m_ragdoll);
+        }
+
         // Wallrun camera tilt.
         [HarmonyPostfix, HarmonyPatch(typeof(GameCamera), "UpdateCamera")]
         private static void CameraRoll(GameCamera __instance)

@@ -94,7 +94,8 @@ namespace PilotHeim.Pilot
             ApplyCloakVisual();
 
             if (input && toggle) { Drawn = !Drawn; deployEnd = m.Time + (Weapon != null ? Weapon.DeployTime : 0f); reloadEnd = 0f; }
-            if (input && swap && Loadout.Count > 1) { Current = (Current + 1) % Loadout.Count; Drawn = true; deployEnd = m.Time + Weapon.DeployTime; reloadEnd = 0f; }
+            // swap only while the gun is out: holstered, X stays Valheim's sit
+            if (input && swap && Drawn && Loadout.Count > 1) { Current = (Current + 1) % Loadout.Count; deployEnd = m.Time + Weapon.DeployTime; reloadEnd = 0f; }
             if (input && tactical) UseTactical();
             if (input && ordnance && OrdnanceDef != null) ThrowGrenade(OrdnanceDef, false);
 

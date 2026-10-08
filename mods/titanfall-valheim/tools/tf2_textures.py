@@ -67,7 +67,11 @@ def main(root, max_size=2048):
         for suffix in SUFFIXES:
             png = os.path.join(d, f"{mat}_{suffix}.png")
             if not os.path.exists(png):
-                continue
+                # some materials name their maps after another stem (at_rifle_body -> at_rifle_col)
+                alt = sorted(f for f in os.listdir(d) if f.lower().endswith(f"_{suffix}.png"))
+                if not alt:
+                    continue
+                png = os.path.join(d, alt[0])
             out = png[:-4] + ".phtex"
             if os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(png):
                 continue

@@ -127,15 +127,30 @@ def write_mesh(m, submeshes, path, rest_pose=None):
     o.save(path)
 
 
-def write_anims(m, clips, path, fallback=None):
+def write_anims(m, clips, path, fallback=None, src=None, looping=None):
     """PHA2: bone count, then clips (name, fps, loop, speed u/s, mark s, frames x bones x (pos3, rot4)).
     mark = impact time of the hot drop (fastest hip drop), else 0."""
     o = Out(b"PHA2")
+    looping = LOOPING if looping is None else looping
+    remap = None
+    if src:
+        # clips decoded on another skeleton (e.g. pilot_light_core), written in the target's bone order
+        src_bones, src_fallback = src
+        idx = {b["name"]: i for i, b in enumerate(src_bones)}
+        remap = [idx.get(b["name"], -1) for b in m["bones"]]
+        rest = fallback or [(b["pos"], b["quat"]) for b in m["bones"]]
     o.i(len(m["bones"]))
     o.i(len(clips))
     for key, a in clips:
         n = a.numframes if key != "idle" else min(a.numframes, MAX_IDLE_FRAMES)
-        poses = [a.pose(f, m["bones"], fallback) for f in range(n)]
+        if remap:
+            poses = []
+            for f in range(n):
+                sp = a.pose(f, src_bones, src_fallback)
+                poses.append([sp[j] if j >= 0 else (list(rest[i][0]), tuple(rest[i][1]), [1.0, 1.0, 1.0])
+                              for i, j in enumerate(remap)])
+        else:
+            poses = [a.pose(f, m["bones"], fallback) for f in range(n)]
         # clip speed from the jx_c_start motion tracker (body stays in place)
         speed = 0.0
         tracker = next((i for i, b in enumerate(m["bones"]) if b["name"] == "jx_c_start"), -1)
@@ -149,7 +164,7 @@ def write_anims(m, clips, path, fallback=None):
             ys = [poses[f][hip][0][1] for f in range(n)]
             drop = [ys[f] - ys[f + 1] for f in range(n - 1)]
             mark = max(range(n - 1), key=lambda f: drop[f]) / a.fps
-        o.s(key); o.f(a.fps); o.i(1 if key in LOOPING else 0); o.f(speed); o.f(mark); o.i(n)
+        o.s(key); o.f(a.fps); o.i(1 if key in looping else 0); o.f(speed); o.f(mark); o.i(n)
         for pose in poses:
             for (p, q, sc) in pose:
                 up, uq = to_unity_tr(p, q)
@@ -183,6 +198,37 @@ def export_bt(model_path, anim_paths, outdir):
 MAYA_TO_SOURCE = (0.5, 0.5, 0.5, 0.5)       # root rotation every Titanfall @ref applies (Y-up -> Z-up)
 
 
+# Pilot clips (pilot_light_core.mdl, rifle set) for the Titanfall-only states and gun-drawn locomotion
+PILOT_CLIPS = {
+    "idle": "a_Idle_static",
+    "walk_f": "pt_Walk_Forward", "walk_b": "pt_Walk_Backward", "walk_l": "pt_Walk_Forward_L", "walk_r": "pt_Walk_Forward_R",
+    "run_f": "pt_Run_Forward", "run_b": "pt_Run_Backward", "run_l": "pt_Run_Forward_L", "run_r": "pt_Run_Forward_R",
+    "slide": "pt_Slide_Forward",
+    "wallrun_l": "@a_pt_wallrun_left", "wallrun_r": "@a_pt_wallrun_right", "wallrun_up": "@a_pt_wallrun_up",
+    "jump": "pt_Jump_Forward", "doublejump": "a_MP_DoubleJump",
+    "float_f": "pt_Float_Forward", "float_b": "pt_Float_Backward",
+    "land": "pt_Land_Forward", "grapple": "pt_Grapple_Idle_CENTER",
+}
+PILOT_LOOPING = {"idle", "walk_f", "walk_b", "walk_l", "walk_r", "run_f", "run_b", "run_l", "run_r", "slide",
+                 "wallrun_l", "wallrun_r", "wallrun_up", "float_f", "float_b", "grapple"}
+
+
+def export_pilot_anims(model_path, anim_path, outdir):
+    m = mdl53.read_mdl(model_path)
+    a_model = mdl53.read_mdl(anim_path)
+    _, descs = anim53.read_anims(anim_path)
+    anims = {d.name: d for d in descs}
+    ref = anims.get("@ref")
+    src_fb = [(p, q) for (p, q, _) in ref.pose(0, a_model["bones"])] if ref else None
+    rest = [(b["pos"], b["quat"]) for b in m["bones"]]
+    rest[0] = (rest[0][0], MAYA_TO_SOURCE)
+    clips = [(k, anims[v]) for k, v in PILOT_CLIPS.items() if v in anims]
+    missing = [v for v in PILOT_CLIPS.values() if v not in anims]
+    if missing:
+        print("missing pilot clips:", missing)
+    write_anims(m, clips, os.path.join(outdir, "jack.pha"), rest, (a_model["bones"], src_fb), PILOT_LOOPING)
+
+
 def export_mesh(model_path, outdir, name, choose, yup_root=False):
     m = mdl53.read_mdl(model_path)
     subs, _ = mdl53.build(m, choose)
@@ -197,7 +243,9 @@ def export_mesh(model_path, outdir, name, choose, yup_root=False):
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "bt":
+    if sys.argv[1] == "pilot":
+        export_pilot_anims(sys.argv[2], sys.argv[3], sys.argv[4])
+    elif sys.argv[1] == "bt":
         export_bt(sys.argv[2], sys.argv[3].split(","), sys.argv[4])
     elif sys.argv[1] == "mesh":
         ch = {}

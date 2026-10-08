@@ -96,7 +96,7 @@ namespace PilotHeim
                 var damageDefs = KeyValues.ParseFile(Path.Combine(ScriptsDir, "damage", "damagedefs.txt")).Child("DamageDefs");
                 var titanTuning = new TitanTuning(titanSet, native, damageDefs, TitanClass.Value);
                 PilotHeim.Titan.TitanController.Tuning = titanTuning;
-                PilotHeim.Assets.AssetLibrary.Preload(DataDir.Value);          // models/clips parse on a worker thread
+                PilotHeim.Assets.AssetLibrary.Preload(DataDir.Value, Loadout.Value.Split(','));          // models/clips parse on a worker thread
                 PilotHeim.Assets.TfAudio.Preload(Path.Combine(DataDir.Value, "assets"));
                 tuning.Report.AddRange(titanTuning.Report);
                 File.WriteAllLines(Path.Combine(Paths.BepInExRootPath, "PilotHeim_tuning.txt"), tuning.Report);
